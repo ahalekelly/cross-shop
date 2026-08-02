@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import json
 import re
-from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
-from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlsplit
@@ -16,8 +13,9 @@ from storefront.adapters import bigcommerce, extra, magento, shopify, squarespac
 from storefront.adapters.marketplaces import AliExpress, Ebay, SerpApi, ShopifyGlobal
 from storefront.core import (
     DetectedStore, MagentoDetectedStore, PositiveDetection, Session, StorefrontBotWall,
-    StorefrontDetection, ToolError, UnknownStore, api_error, canonical_ref, canonical_url,
-    description, json_object, public_detection, url_origin, validate_ref, wall_system,
+    StorefrontDetection, ToolError, UnknownStore, adapter_items, api_error, canonical_ref,
+    canonical_url, description, money_amount, normalize_variant, public_detection,
+    url_origin, validate_ref, wall_system,
 )
 from storefront.storage import DataStore, HANDLE, validate_destination
 from storefront.web_bot_auth import build_signer
@@ -345,10 +343,10 @@ class Storefront:
                 raw = adapter.search(session, detection, job["query"], limit, self.data.destination())
                 if raw.get("status") == "api_error":
                     return {**base, **raw, **({"evidence": session.evidence} if debug else {})}
-                for item in _raw_items(raw):
-                    normalized = _normalize_variant(item, detection.platform, detection.origin)
+                for item in adapter_items(raw):
+                    normalized = normalize_variant(item, detection.platform, detection.origin)
                     identity = normalized["url"] or canonical_ref(normalized["ref"])
-                    if detection.platform == "shopify_global":
+                    if "merchant_stores" in normalized:
                         identity += f"\0{normalized.get('currency', '')}"
                     product = products.get(identity)
                     if product is None:
@@ -359,15 +357,13 @@ class Storefront:
                     if len(jobs) > 1 and job["query"] not in product["queries"]:
                         product["queries"].append(job["query"])
             values = list(products.values())[:limit]
-            if detection.platform == "shopify_global":
-                self._remember_global_merchants(values)
+            self._remember_merchants(values)
+            multi_merchant = any("merchant_stores" in value for value in values)
             currencies = {variant["currency"] for value in values for variant in value["variants"] if variant.get("currency")}
-            if len(currencies) > 1 and detection.platform != "shopify_global":
+            if len(currencies) > 1 and not multi_merchant:
                 raise ToolError("A store search returned multiple currencies")
             store_currency = (
-                next(iter(currencies))
-                if len(currencies) == 1 and detection.platform != "shopify_global"
-                else None
+                next(iter(currencies)) if len(currencies) == 1 and not multi_merchant else None
             )
             return {
                 **base,
@@ -403,7 +399,7 @@ class Storefront:
                     if raw.get("status") == "api_error":
                         fetched[identity] = raw
                     else:
-                        variants = [_normalize_variant(value, detection.platform, detection.origin) for value in _raw_items(raw)]
+                        variants = [normalize_variant(value, detection.platform, detection.origin) for value in adapter_items(raw)]
                         if not variants:
                             fetched[identity] = api_error(detection.platform, "product", "Product was not found")
                         else:
@@ -528,10 +524,10 @@ class Storefront:
                     if raw_product.get("status") == "api_error":
                         return {**base, **raw_product}
                     normalized = [
-                        _normalize_variant(
+                        normalize_variant(
                             value, detection.platform, detection.origin
                         )
-                        for value in _raw_items(raw_product)
+                        for value in adapter_items(raw_product)
                     ]
                     if not normalized:
                         return {
@@ -597,7 +593,8 @@ class Storefront:
             return {"store": cached["store"], "ref": reference, "url": cached.get("url"), "cached": cached}
         raise ToolError("Item must be a product-page URL, handle, or ref object")
 
-    def _remember_global_merchants(self, products: list[dict[str, Any]]) -> None:
+    def _remember_merchants(self, products: list[dict[str, Any]]) -> None:
+        """A catalog result carries the storefront each offer really lives on."""
         for product in products:
             for merchant in product.get("merchant_stores", []):
                 if not isinstance(merchant, dict):
@@ -652,65 +649,6 @@ def _entry_origins(origin: str) -> list[str]:
     return list(dict.fromkeys((origin, f"https://{alias}")))
 
 
-def _raw_items(raw: dict[str, Any]) -> list[dict[str, Any]]:
-    if raw.get("kind") == "search":
-        values = raw.get("items")
-    elif any(key in raw for key in ("item_ref", "product_url", "url", "title", "name")):
-        values = [raw]
-    else:
-        values = []
-    if not isinstance(values, list) or any(not isinstance(value, dict) for value in values):
-        raise ToolError("Adapter items must be an array of objects")
-    return values
-
-
-def _normalize_variant(value: dict[str, Any], platform: str, origin: str) -> dict[str, Any]:
-    title = value.get("title", value.get("name"))
-    if not isinstance(title, str) or not title:
-        raise ToolError(f"{platform} product omitted its title")
-    url = value.get("product_url", value.get("url", ""))
-    if url and not isinstance(url, str):
-        raise ToolError(f"{platform} product URL must be a string")
-    reference = value.get("item_ref", value.get("ref"))
-    if not isinstance(reference, dict):
-        raise ToolError(f"{platform} product omitted its ref")
-    if reference.get("platform") != platform:
-        raise ToolError(f"{platform} adapter returned a ref for another platform")
-    reference = {**reference, "store": origin}
-    validate_ref(reference)
-    raw_price = value.get("price")
-    raw_max_price = value.get("max_price")
-    if raw_price is not None and not isinstance(raw_price, dict):
-        raise ToolError(f"{platform} product price must be money")
-    if raw_max_price is not None and not isinstance(raw_max_price, dict):
-        raise ToolError(f"{platform} product max_price must be money")
-    image_urls = value.get("image_urls", value.get("images", []))
-    if isinstance(image_urls, list) and all(isinstance(item, str) for item in image_urls):
-        images = image_urls
-    else:
-        images = []
-    options = value.get("options", [])
-    name = value.get("variant")
-    if not isinstance(name, str) or not name or name.casefold() == "default title":
-        name = " / ".join(str(item.get("label", item.get("value", ""))) for item in options if isinstance(item, dict)) or "Default"
-    return {
-        "title": title, "description": value.get("description", value.get("short_description", "")),
-        "url": _handoff_url(url) if url and platform in {"shopify_global", "sfcc"} else canonical_url(url) if url else "",
-        "available": value.get("available"),
-        "name": name, "options": options, "ref": reference,
-        "price": _amount(raw_price), "max_price": _amount(raw_max_price),
-        "currency": raw_price.get("currency") if isinstance(raw_price, dict) else None,
-        "image_urls": images,
-        **({"lead": True} if value.get("lead") is True else {}),
-        **({"shipping_options": value["shipping_options"]} if isinstance(value.get("shipping_options"), list) else {}),
-        **({"merchant_stores": value["merchant_stores"]} if isinstance(value.get("merchant_stores"), list) else {}),
-        **({"seller_url": value["seller_url"]} if isinstance(value.get("seller_url"), str) else {}),
-        **({"seller_domain": value["seller_domain"]} if isinstance(value.get("seller_domain"), str) else {}),
-        **({"variant_url": value["variant_url"]} if isinstance(value.get("variant_url"), str) else {}),
-        **({"checkout_url": value["checkout_url"]} if isinstance(value.get("checkout_url"), str) else {}),
-    }
-
-
 def _new_product(variant: dict[str, Any]) -> dict[str, Any]:
     return {
         "title": variant["title"], "description": variant["description"],
@@ -734,13 +672,6 @@ def _append_variant(product: dict[str, Any], variant: dict[str, Any]) -> None:
                 for value in product.get("merchant_stores", []) + variant["merchant_stores"]
             }.values()
         )
-
-
-def _amount(value: dict[str, Any] | None) -> int | float | None:
-    if value is None:
-        return None
-    decimal = Decimal(value["amount"])
-    return int(decimal) if decimal == decimal.to_integral() else float(decimal)
 
 
 def _product_price(product: dict[str, Any]) -> int | float | list[int | float] | None:
@@ -770,10 +701,10 @@ def _search_output(
         return _omit({key: value for key, value in store.items() if key != "items"})
     items = []
     multi = isinstance(store.get("input", {}).get("queries"), list)
-    global_catalog = store.get("detection", {}).get("platform") == "shopify_global"
+    per_item_currency = store.get("currency") is None
     for index, product in enumerate(store["items"], 1):
         variants = product["variants"]
-        item = {"i": index, "title": product["title"], "price": _product_price(product), "currency": _product_currency(product) if global_catalog else None, "available": product.get("available"), "url": product.get("url"), "description": description(product.get("description", ""), description_chars), "images": len(product.get("image_urls", [])) or None, "lead": product.get("lead"), "variants": [value["name"] for value in variants] if len(variants) > 1 else None, "queries": product.get("queries") if multi else None}
+        item = {"i": index, "title": product["title"], "price": _product_price(product), "currency": _product_currency(product) if per_item_currency else None, "available": product.get("available"), "url": product.get("url"), "description": description(product.get("description", ""), description_chars), "images": len(product.get("image_urls", [])) or None, "lead": product.get("lead"), "variants": [value["name"] for value in variants] if len(variants) > 1 else None, "queries": product.get("queries") if multi else None}
         items.append(_omit(item))
     return _omit({"s": store_index, "input": store["input"], "store": store["store"], "detection": store["detection"], "status": "ok", "currency": store.get("currency"), "items": items, "evidence": store.get("evidence") if debug else None})
 
@@ -800,7 +731,7 @@ def _quote_output(raw: dict[str, Any], lines: list[dict[str, Any]]) -> dict[str,
         output_lines.append(_omit({"title": title, "unit_price": unit, "quantity": line["quantity"], "line_total": unit * line["quantity"] if isinstance(unit, (int, float)) else None}))
     rates = raw.get("rates")
     options = rates if isinstance(rates, list) and rates else raw.get("shipping_options", [])
-    return _omit({"currency": currency, "lines": output_lines, "subtotal": _amount(subtotal) if isinstance(subtotal, dict) else subtotal, "shipping_options": options})
+    return _omit({"currency": currency, "lines": output_lines, "subtotal": money_amount(subtotal) if isinstance(subtotal, dict) else subtotal, "shipping_options": options})
 
 
 def _cache_store(store: dict[str, Any]) -> dict[str, Any]:
@@ -816,21 +747,6 @@ def _item_identity(item: dict[str, Any]) -> str:
     if isinstance(cached, dict) and isinstance(cached.get("handle"), str):
         return cached["handle"]
     raise ToolError("Item has no identity")
-
-
-def _handoff_url(value: str) -> str:
-    parts = urlsplit(value)
-    if (
-        parts.scheme != "https"
-        or not parts.hostname
-        or parts.username is not None
-        or parts.password is not None
-        or parts.fragment
-    ):
-        raise ToolError(
-            "Handoff URL must be absolute HTTPS without credentials or fragment"
-        )
-    return value
 
 
 def _unexpected(error: Exception) -> str:

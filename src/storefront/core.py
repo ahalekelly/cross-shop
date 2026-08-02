@@ -395,6 +395,89 @@ def canonical_ref(reference: object) -> str:
     return json.dumps(validate_ref(reference), sort_keys=True, separators=(",", ":"))
 
 
+def adapter_items(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    if raw.get("kind") == "search":
+        values = raw.get("items")
+    elif any(key in raw for key in ("item_ref", "product_url", "url", "title", "name")):
+        values = [raw]
+    else:
+        values = []
+    if not isinstance(values, list) or any(not isinstance(value, dict) for value in values):
+        raise ToolError("Adapter items must be an array of objects")
+    return values
+
+
+def normalize_variant(value: dict[str, Any], platform: str, origin: str) -> dict[str, Any]:
+    """Projects one adapter item onto the package-wide product variant shape."""
+    title = value.get("title", value.get("name"))
+    if not isinstance(title, str) or not title:
+        raise ToolError(f"{platform} product omitted its title")
+    url = value.get("product_url", value.get("url", ""))
+    if url and not isinstance(url, str):
+        raise ToolError(f"{platform} product URL must be a string")
+    reference = value.get("item_ref", value.get("ref"))
+    if not isinstance(reference, dict):
+        raise ToolError(f"{platform} product omitted its ref")
+    if reference.get("platform") != platform:
+        raise ToolError(f"{platform} adapter returned a ref for another platform")
+    reference = {**reference, "store": origin}
+    validate_ref(reference)
+    raw_price = value.get("price")
+    raw_max_price = value.get("max_price")
+    if raw_price is not None and not isinstance(raw_price, dict):
+        raise ToolError(f"{platform} product price must be money")
+    if raw_max_price is not None and not isinstance(raw_max_price, dict):
+        raise ToolError(f"{platform} product max_price must be money")
+    image_urls = value.get("image_urls", value.get("images", []))
+    if isinstance(image_urls, list) and all(isinstance(item, str) for item in image_urls):
+        images = image_urls
+    else:
+        images = []
+    options = value.get("options", [])
+    name = value.get("variant")
+    if not isinstance(name, str) or not name or name.casefold() == "default title":
+        name = " / ".join(str(item.get("label", item.get("value", ""))) for item in options if isinstance(item, dict)) or "Default"
+    return {
+        "title": title, "description": value.get("description", value.get("short_description", "")),
+        "url": _handoff_url(url) if url and platform in {"shopify_global", "sfcc"} else canonical_url(url) if url else "",
+        "available": value.get("available"),
+        "name": name, "options": options, "ref": reference,
+        "price": money_amount(raw_price), "max_price": money_amount(raw_max_price),
+        "currency": raw_price.get("currency") if isinstance(raw_price, dict) else None,
+        "image_urls": images,
+        **({"lead": True} if value.get("lead") is True else {}),
+        **({"shipping_options": value["shipping_options"]} if isinstance(value.get("shipping_options"), list) else {}),
+        **({"merchant_stores": value["merchant_stores"]} if isinstance(value.get("merchant_stores"), list) else {}),
+        **({"seller_url": value["seller_url"]} if isinstance(value.get("seller_url"), str) else {}),
+        **({"seller_domain": value["seller_domain"]} if isinstance(value.get("seller_domain"), str) else {}),
+        **({"variant_url": value["variant_url"]} if isinstance(value.get("variant_url"), str) else {}),
+        **({"checkout_url": value["checkout_url"]} if isinstance(value.get("checkout_url"), str) else {}),
+    }
+
+
+def money_amount(value: dict[str, Any] | None) -> int | float | None:
+    """Shapes a money object into the compact number the output carries."""
+    if value is None:
+        return None
+    decimal = Decimal(value["amount"])
+    return int(decimal) if decimal == decimal.to_integral() else float(decimal)
+
+
+def _handoff_url(value: str) -> str:
+    parts = urlsplit(value)
+    if (
+        parts.scheme != "https"
+        or not parts.hostname
+        or parts.username is not None
+        or parts.password is not None
+        or parts.fragment
+    ):
+        raise ToolError(
+            "Handoff URL must be absolute HTTPS without credentials or fragment"
+        )
+    return value
+
+
 class _Text(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -560,8 +643,3 @@ def unsupported_operation(operation: str, platform: str, reason: str, *, browser
 
 def unsupported_configuration(platform: str, fields: list[str], reason: str) -> dict[str, Any]:
     return {**api_error(platform, "quote", reason), "fields": fields, "browser_required": True}
-
-
-def validate_result(result: dict[str, Any]) -> None:
-    if not isinstance(result, dict) or not isinstance(result.get("platform"), str):
-        raise ToolError("Adapter result must identify its platform")
