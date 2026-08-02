@@ -43,7 +43,7 @@ def test_fallback_shipping_is_not_reported_as_empty_or_delivery() -> None:
     assert result["rates"] == []
 
 
-def test_shopify_quote_many_uses_one_cart_with_all_quantities() -> None:
+def test_shopify_quote_uses_one_cart_with_all_quantities() -> None:
     bodies = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -63,7 +63,7 @@ def test_shopify_quote_many_uses_one_cart_with_all_quantities() -> None:
     assert result["kind"] == "quote"
 
 
-def test_woocommerce_quote_many_reuses_token_and_cleans_every_line() -> None:
+def test_woocommerce_quote_reuses_token_and_cleans_every_line() -> None:
     added = 0
     deleted = []
 
@@ -92,7 +92,7 @@ def test_woocommerce_quote_many_reuses_token_and_cleans_every_line() -> None:
     assert result["subtotal"]["amount"] == "25.00"
 
 
-def test_magento_quote_many_adds_all_lines_to_one_guest_cart() -> None:
+def test_magento_quote_adds_all_lines_to_one_guest_cart() -> None:
     quantities = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -118,7 +118,7 @@ def test_magento_quote_many_adds_all_lines_to_one_guest_cart() -> None:
     assert result["kind"] == "quote"
 
 
-def test_bigcommerce_quote_many_sends_all_line_items() -> None:
+def test_bigcommerce_quote_sends_all_line_items() -> None:
     cart_body = None
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -144,7 +144,7 @@ def test_bigcommerce_quote_many_sends_all_line_items() -> None:
     assert result["kind"] == "quote"
 
 
-def test_squarespace_quote_many_repeats_adds_then_fetches_shipping_once() -> None:
+def test_squarespace_quote_repeats_adds_then_fetches_shipping_once() -> None:
     adds = []
     shipping = 0
 
