@@ -34,13 +34,7 @@ STOREFRONT_PLATFORMS = (
     "shopify", "woocommerce", "magento", "bigcommerce", "squarespace",
     "wix", "ecwid", "sfcc",
 )
-LEGACY_MODULES = {"wix": extra, "ecwid": extra, "sfcc": extra}
 PASSIVE_DETECTORS = (bigcommerce.detect, squarespace.detect, extra.detect)
-ACTIVE_DETECTORS = (
-    ("woocommerce", woocommerce.detect),
-    ("shopify", shopify.detect),
-    ("magento", magento.detect),
-)
 
 
 class BoundaryAdapter:
@@ -60,43 +54,6 @@ class BoundaryAdapter:
         return api_error(self.platform, "quote", f"{self.platform} requires a browser workflow")
 
 
-class LegacyAdapter:
-    """Presents the package-wide session/search/product/quote adapter convention."""
-
-    def __init__(self, module: Any) -> None:
-        self.module = module
-
-    def search(self, session: Session, detection: PositiveDetection, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
-        del destination
-        result = self.module.search(session, detection, query)
-        if isinstance(result.get("items"), list):
-            result["items"] = result["items"][:limit]
-        return result
-
-    def product(self, session: Session, detection: PositiveDetection, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
-        del destination
-        platform = detection.platform
-        cached = item.get("cached")
-        reference = item.get("ref")
-        url = (
-            item.get("url")
-            or (reference.get("product_url") if isinstance(reference, dict) else None)
-            or (cached.get("url") if isinstance(cached, dict) else None)
-        )
-        return api_error(
-            platform,
-            "product",
-            f"{platform} cannot resolve this input to live exact product detail",
-        )
-
-    def quote(self, session: Session, detection: PositiveDetection, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
-        if hasattr(self.module, "quote_many"):
-            return self.module.quote_many(session, detection, lines, destination)
-        if len(lines) != 1:
-            return api_error(detection.platform, "quote", "This storefront adapter could not create a multi-line cart")
-        return self.module.quote(session, detection, lines[0]["ref"])
-
-
 class Storefront:
     def __init__(
         self,
@@ -107,13 +64,13 @@ class Storefront:
         self.data = data or DataStore()
         self.transport_factory = transport_factory or (lambda origin: None)
         settings = self.data.settings()
-        defaults: dict[str, Any] = {platform: LegacyAdapter(module) for platform, module in LEGACY_MODULES.items()}
-        defaults |= {
+        defaults: dict[str, Any] = {
             "shopify": shopify.Shopify(settings),
             "woocommerce": woocommerce.WooCommerce(),
             "magento": magento.Magento(),
             "bigcommerce": bigcommerce.BigCommerce(),
             "squarespace": squarespace.Squarespace(),
+            "wix": extra.Wix(), "ecwid": extra.Ecwid(), "sfcc": extra.Sfcc(),
             "aliexpress": AliExpress(), "google_shopping": SerpApi("google_shopping"),
             "amazon": SerpApi("amazon"), "ebay": Ebay(settings),
             "shopify_global": ShopifyGlobal(settings),
@@ -349,17 +306,11 @@ class Storefront:
         if walls:
             return walls[0]
         if not detections:
-            for platform, detector in ACTIVE_DETECTORS:
-                if platform == "shopify":
-                    session.signer = build_signer(self.web_bot_auth)
-                    value = detector(session, detected_origin, entry_url, homepage)
-                elif platform == "magento":
-                    if detections or walls:
-                        break
-                    value = detector(session, detected_origin, entry_url, homepage)
-                else:
-                    value = detector(session, detected_origin, entry_url)
-                _collect(detections, walls, value)
+            _collect(detections, walls, woocommerce.detect(session, detected_origin, entry_url))
+            session.signer = build_signer(self.web_bot_auth)
+            _collect(detections, walls, shopify.detect(session, detected_origin, entry_url, homepage))
+            if not detections and not walls:
+                _collect(detections, walls, magento.detect(session, detected_origin, entry_url, homepage))
         platforms = {value.platform for value in detections}
         if len(platforms) > 1:
             raise ToolError(f"Conflicting storefront detections: {', '.join(sorted(platforms))}")

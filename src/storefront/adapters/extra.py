@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from html.parser import HTMLParser
-from typing import Any, ClassVar, Literal, cast
+from typing import Any, ClassVar, Literal
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -15,6 +15,7 @@ from storefront.core import (
     StorefrontBotWall,
     ToolError,
     WixSearch,
+    api_error,
     bot_wall,
     canonical_url,
     gated,
@@ -28,7 +29,11 @@ from storefront.core import (
 )
 
 ExtraPlatform = Literal["wix", "ecwid", "sfcc"]
-EXTRA_PLATFORMS = {"wix", "ecwid", "sfcc"}
+QUOTE_BOUNDARIES: dict[ExtraPlatform, str] = {
+    "wix": "Wix cart references and shipping state are mediated by storefront SDK logic",
+    "ecwid": "Ecwid has no generalized public API for a destination-specific guest shipping quote",
+    "sfcc": "SFCC guest checkout controllers, CSRF, and middleware are merchant-specific",
+}
 WIX_ECOMMERCE_APP = "1380b703-ce81-ff05-f115-39571d94dfcd"
 ECWID_SCRIPT = re.compile(r"app\.ecwid\.com(?::443)?/script\.js\?(\d+)", re.IGNORECASE)
 ECWID_ESCAPED_STORE_ID = re.compile(r'\\?"storeId\\?"\s*:\s*\\?"?(\d+)')
@@ -89,33 +94,77 @@ def detect(
     )
 
 
-def search(http: Http, detection: DetectedStore, query: str) -> dict[str, object]:
-    platform = _platform(detection)
+class Wix:
+    platform: ExtraPlatform = "wix"
+
+    def search(self, http: Http, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
+        del destination
+        _require_query(self.platform, query)
+        return _wix_search(http, detection, query, limit)
+
+    def product(self, http: Http, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
+        del http, detection, item, destination
+        return _no_exact_product(self.platform)
+
+    def quote(self, http: Http, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
+        del http, detection, lines, destination
+        return _browser_boundary(self.platform)
+
+
+class Ecwid:
+    platform: ExtraPlatform = "ecwid"
+
+    def search(self, http: Http, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
+        del destination
+        _require_query(self.platform, query)
+        return _ecwid_search(http, detection, query, limit)
+
+    def product(self, http: Http, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
+        del http, detection, item, destination
+        return _no_exact_product(self.platform)
+
+    def quote(self, http: Http, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
+        del http, detection, lines, destination
+        return _browser_boundary(self.platform)
+
+
+class Sfcc:
+    platform: ExtraPlatform = "sfcc"
+
+    def search(self, http: Http, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
+        del destination
+        _require_query(self.platform, query)
+        return _sfcc_search(http, detection, query, limit)
+
+    def product(self, http: Http, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
+        del http, detection, item, destination
+        return _no_exact_product(self.platform)
+
+    def quote(self, http: Http, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
+        del http, detection, lines, destination
+        return _browser_boundary(self.platform)
+
+
+def _require_query(platform: ExtraPlatform, query: str) -> None:
     if not query.strip():
         raise ToolError(f"{platform} search requires a nonempty query")
-    if platform == "wix":
-        return _wix_search(http, detection, query)
-    if platform == "ecwid":
-        return _ecwid_search(http, detection, query)
-    if platform == "sfcc":
-        return _sfcc_search(http, detection, query)
-    raise AssertionError(platform)
 
 
-def quote(http: Http, detection: DetectedStore, reference: str) -> dict[str, object]:
-    del http, reference
-    platform = _platform(detection)
-    reasons = {
-        "wix": "Wix cart references and shipping state are mediated by storefront SDK logic",
-        "ecwid": "Ecwid has no generalized public API for a destination-specific guest shipping quote",
-        "sfcc": "SFCC guest checkout controllers, CSRF, and middleware are merchant-specific",
-    }
-    return unsupported_operation(
-        "quote", platform, reasons[platform], browser_required=True
+def _no_exact_product(platform: ExtraPlatform) -> dict[str, Any]:
+    return api_error(
+        platform,
+        "product",
+        f"{platform} cannot resolve this input to live exact product detail",
     )
 
 
-def _wix_search(http: Http, detection: DetectedStore, query: str) -> dict[str, object]:
+def _browser_boundary(platform: ExtraPlatform) -> dict[str, Any]:
+    return unsupported_operation(
+        "quote", platform, QUOTE_BOUNDARIES[platform], browser_required=True
+    )
+
+
+def _wix_search(http: Http, detection: DetectedStore, query: str, limit: int) -> dict[str, object]:
     origin = _api_origin(detection, "wix")
     token_response = http.get(http.wix_bootstrap(origin))
     terminal = _wall(token_response, "wix")
@@ -156,7 +205,7 @@ def _wix_search(http: Http, detection: DetectedStore, query: str) -> dict[str, o
     return search_result(
         WixSearch(total=total),
         query,
-        [_wix_item(detection, product) for product in products],
+        [_wix_item(detection, product) for product in products][:limit],
     )
 
 
@@ -212,7 +261,7 @@ def _wix_item(detection: DetectedStore, value: Any) -> dict[str, Any]:
 
 
 def _ecwid_search(
-    http: Http, detection: DetectedStore, query: str
+    http: Http, detection: DetectedStore, query: str, limit: int
 ) -> dict[str, object]:
     _api_origin(detection, "ecwid")
     homepage = http.get(http.detected_entry(detection.entry_url))
@@ -249,7 +298,7 @@ def _ecwid_search(
     if not isinstance(products, list) or not _count(total):
         raise ToolError("Ecwid product search requires items and total")
     items = [_ecwid_item(store_id, currency, product) for product in products]
-    return search_result(EcwidSearch(store_id=store_id, total=total), query, items)
+    return search_result(EcwidSearch(store_id=store_id, total=total), query, items[:limit])
 
 
 def _ecwid_store_id(body: str) -> str:
@@ -345,7 +394,7 @@ def _ecwid_item(store_id: str, currency: str, value: Any) -> dict[str, Any]:
     return item
 
 
-def _sfcc_search(http: Http, detection: DetectedStore, query: str) -> dict[str, object]:
+def _sfcc_search(http: Http, detection: DetectedStore, query: str, limit: int) -> dict[str, object]:
     _api_origin(detection, "sfcc")
     route = canonical_url(urljoin(detection.entry_url, "search"))
     if url_origin(route) != detection.origin:
@@ -378,7 +427,9 @@ def _sfcc_search(http: Http, detection: DetectedStore, query: str) -> dict[str, 
     parser = SfccProducts(detection.origin)
     parser.feed(response.text)
     parser.close()
-    return search_result(SfccSearch(endpoint=route), query, parser.items[:MAX_RESULTS])
+    return search_result(
+        SfccSearch(endpoint=route), query, parser.items[: min(MAX_RESULTS, limit)]
+    )
 
 
 class SfccProducts(HTMLParser):
@@ -520,16 +571,8 @@ def _count(value: Any) -> bool:
     return not isinstance(value, bool) and isinstance(value, int) and value >= 0
 
 
-def _platform(detection: DetectedStore) -> ExtraPlatform:
-    if detection.platform not in EXTRA_PLATFORMS:
-        raise ToolError(
-            "Extra storefront adapter requires a detected Wix, Ecwid, or SFCC store"
-        )
-    return cast(ExtraPlatform, detection.platform)
-
-
 def _api_origin(detection: DetectedStore, platform: ExtraPlatform) -> str:
-    if _platform(detection) != platform:
+    if detection.platform != platform:
         raise ToolError(f"{platform} adapter received a different platform detection")
     return detection.api_origin
 

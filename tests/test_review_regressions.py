@@ -10,9 +10,9 @@ import httpx
 import pytest
 
 from storefront import cli
-from storefront.adapters import bigcommerce
+from storefront.adapters import bigcommerce, extra
 from storefront.core import DetectedStore, Session, ToolError, canonical_url, item_ref
-from storefront.service import LegacyAdapter, Storefront
+from storefront.service import Storefront
 from storefront.storage import DataStore
 
 
@@ -87,12 +87,8 @@ def test_config_show_reports_credentials_without_values(tmp_path: Path) -> None:
     assert "private_key_path" not in encoded
 
 
-def test_legacy_product_never_returns_cached_or_guessed_search_data() -> None:
-    class Module:
-        def search(self, *args):
-            raise AssertionError("product resolution must not guess with search")
-
-    adapter = LegacyAdapter(Module())
+def test_boundary_product_never_returns_cached_or_guessed_search_data() -> None:
+    adapter = extra.Sfcc()
     detection = DetectedStore(
         origin="https://store.test",
         entry_url="https://store.test/",
@@ -100,7 +96,13 @@ def test_legacy_product_never_returns_cached_or_guessed_search_data() -> None:
         api_origin="https://store.test",
         evidence=("test",),
     )
-    session = Session(httpx.MockTransport(lambda request: None))
+    session = Session(
+        httpx.MockTransport(
+            lambda request: (_ for _ in ()).throw(
+                AssertionError("product resolution must not guess with a request")
+            )
+        )
+    )
 
     cached = adapter.product(
         session,

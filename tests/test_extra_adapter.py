@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from storefront.adapters import extra
-from storefront.core import DetectedStore, Session, StorefrontBotWall, ToolError, parse_item_ref
+from storefront.core import DEFAULT_DESTINATION, DetectedStore, Session, StorefrontBotWall, ToolError, parse_item_ref
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -62,7 +62,7 @@ def test_ecwid_search_uses_initial_data_api_and_public_product_api() -> None:
         api_origin="https://app.ecwid.com",
         evidence=("test",),
     )
-    result = extra.search(Session(httpx.MockTransport(handler)), detection, "coffee")
+    result = extra.Ecwid().search(Session(httpx.MockTransport(handler)), detection, "coffee", 20, DEFAULT_DESTINATION)
 
     assert [request.url.host for request in requests] == [
         "shop.example",
@@ -110,7 +110,7 @@ def test_wix_search_bootstraps_token_and_maps_product() -> None:
         assert json.loads(payload["query"]["filter"]) == {"name": {"$contains": "wheel"}}
         return httpx.Response(200, content=fixture("platform-extra-wix-products.json"), request=request)
 
-    result = extra.search(Session(httpx.MockTransport(handler)), detected("wix"), "wheel")
+    result = extra.Wix().search(Session(httpx.MockTransport(handler)), detected("wix"), "wheel", 20, DEFAULT_DESTINATION)
     product = result["items"][0]
     assert result["total"] == 1
     assert product["name"] == "Jurassic World - Dino Parade"
@@ -133,7 +133,7 @@ def test_ecwid_rejects_untrusted_api_base() -> None:
         return httpx.Response(200, text='{"apiBaseUrl":"https://attacker.test/storefront/api/v1"}', request=request)
 
     with pytest.raises(ToolError, match="untrusted storefront API base URL"):
-        extra.search(Session(httpx.MockTransport(handler)), detected("ecwid", "https://app.ecwid.com"), "cake")
+        extra.Ecwid().search(Session(httpx.MockTransport(handler)), detected("ecwid", "https://app.ecwid.com"), "cake", 20, DEFAULT_DESTINATION)
 
 
 @pytest.mark.parametrize("entry_url, expected", [("https://shop.example/", "/search"), ("https://shop.example/it_IT/", "/it_IT/search"), ("https://shop.example/us/home", "/us/search")])
@@ -142,7 +142,7 @@ def test_sfcc_search_is_relative_to_entry_url(entry_url: str, expected: str) -> 
         assert request.url.path == expected
         return httpx.Response(200, content=fixture("platform-extra-sfcc-search.html"), request=request)
 
-    result = extra.search(Session(httpx.MockTransport(handler)), detected("sfcc", entry_url=entry_url), "towel")
+    result = extra.Sfcc().search(Session(httpx.MockTransport(handler)), detected("sfcc", entry_url=entry_url), "towel", 20, DEFAULT_DESTINATION)
     assert result["endpoint"] == f"https://shop.example{expected}"
 
 
@@ -150,7 +150,7 @@ def test_sfcc_returns_stable_refs_and_rejects_unrelated_html() -> None:
     def valid(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=fixture("platform-extra-sfcc-search.html"), request=request)
 
-    result = extra.search(Session(httpx.MockTransport(valid)), detected("sfcc"), "towel")
+    result = extra.Sfcc().search(Session(httpx.MockTransport(valid)), detected("sfcc"), "towel", 20, DEFAULT_DESTINATION)
     assert [item["id"] for item in result["items"]] == ["12133488", "12133489"]
     assert parse_item_ref(result["items"][0]["item_ref"], "sfcc") == {"pid": "12133488"}
 
@@ -158,11 +158,11 @@ def test_sfcc_returns_stable_refs_and_rejects_unrelated_html() -> None:
         return httpx.Response(200, text="<html>unrelated</html>", request=request)
 
     with pytest.raises(ToolError, match="no SFCC storefront signature"):
-        extra.search(Session(httpx.MockTransport(invalid)), detected("sfcc"), "towel")
+        extra.Sfcc().search(Session(httpx.MockTransport(invalid)), detected("sfcc"), "towel", 20, DEFAULT_DESTINATION)
 
 
-@pytest.mark.parametrize("platform, api_origin", [("wix", "https://shop.example"), ("ecwid", "https://app.ecwid.com"), ("sfcc", "https://shop.example")])
-def test_extra_quotes_are_explicit_browser_boundaries(platform: str, api_origin: str) -> None:
-    result = extra.quote(Session(), detected(platform, api_origin), "unused")
+@pytest.mark.parametrize("adapter, api_origin", [(extra.Wix(), "https://shop.example"), (extra.Ecwid(), "https://app.ecwid.com"), (extra.Sfcc(), "https://shop.example")])
+def test_extra_quotes_are_explicit_browser_boundaries(adapter: object, api_origin: str) -> None:
+    result = adapter.quote(Session(), detected(adapter.platform, api_origin), [], DEFAULT_DESTINATION)
     assert result["status"] == "api_error"
     assert result["browser_required"] is True
