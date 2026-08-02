@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import httpx
 import pytest
 
 from storefront.adapters.marketplaces import Ebay, SerpApi, ShopifyGlobal
 from storefront.core import DetectedStore, Session, ToolError
+from storefront.service import Storefront
+from storefront.storage import DataStore
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 DESTINATION = {"country": "US", "region": "CA", "city": "San Francisco", "address1": "747 Howard St", "postal_code": "94103"}
 
@@ -36,7 +41,7 @@ def test_ebay_mints_one_token_and_includes_contextual_location() -> None:
         if request.url.path == "/identity/v1/oauth2/token":
             return httpx.Response(200, json={"access_token": "token", "expires_in": 7200}, request=request)
         if request.url.path.endswith("/item_summary/search"):
-            assert "country=US,zip=94103" in request.headers["X-EBAY-C-ENDUSERCTX"]
+            assert request.headers["X-EBAY-C-ENDUSERCTX"] == "contextualLocation=country%3DUS,zip%3D94103"
             return httpx.Response(200, json={"itemSummaries": [{"itemId": "v1|1|0", "title": "Valve", "itemWebUrl": "https://www.ebay.com/itm/1", "price": {"value": "9.99", "currency": "USD"}}]}, request=request)
         raise AssertionError(request.url)
 
@@ -47,6 +52,24 @@ def test_ebay_mints_one_token_and_includes_contextual_location() -> None:
     assert sum(request.url.path == "/identity/v1/oauth2/token" for request in requests) == 1
 
 
+def test_ebay_product_url_uses_legacy_id_lookup_and_returns_shipping() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/identity/v1/oauth2/token":
+            return httpx.Response(200, json={"access_token": "token"}, request=request)
+        assert request.url.path.endswith("/item/get_item_by_legacy_id")
+        assert request.url.params["legacy_item_id"] == "123456789012"
+        return httpx.Response(200, json={"itemId": "v1|123456789012|0", "title": "Valve", "itemWebUrl": "https://www.ebay.com/itm/123456789012", "price": {"value": "9.99", "currency": "USD"}, "shippingOptions": [{"shippingCost": {"value": "5.00", "currency": "USD"}}]}, request=request)
+
+    result = Ebay({"ebay": {"client_id": "id", "client_secret": "secret"}}).product(
+        Session(httpx.MockTransport(handler)),
+        detection("ebay", "https://www.ebay.com"),
+        {"url": "https://www.ebay.com/itm/123456789012"},
+        DESTINATION,
+    )
+
+    assert result["shipping_options"][0]["shippingCost"]["value"] == "5.00"
+
+
 def test_ebay_missing_credentials_is_specific() -> None:
     with pytest.raises(ToolError, match="settings.ebay"):
         Ebay({}).search(Session(httpx.MockTransport(lambda request: None)), detection("ebay", "https://www.ebay.com"), "valve", 20, DESTINATION)
@@ -54,17 +77,63 @@ def test_ebay_missing_credentials_is_specific() -> None:
 
 def test_shopify_global_uses_current_ucp_contract() -> None:
     bodies = []
+    payload = json.loads((FIXTURES / "marketplace-shopify-global-search.json").read_text())
 
     def handler(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content)
-        bodies.append(body)
-        return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {"structuredContent": {"products": [{"id": "gid://shopify/p/abc", "title": "Boot", "price_range": {"min": "40", "currency": "USD"}, "offers": [{"url": "https://merchant.test/products/boot"}]}]}}}, request=request)
+        bodies.append(json.loads(request.content))
+        assert str(request.url) == "https://catalog.shopify.com/api/ucp/mcp"
+        return httpx.Response(200, json=payload, request=request)
 
     adapter = ShopifyGlobal({"shopify_global": {"profile_url": "https://agent.test/profile.json"}})
     result = adapter.search(Session(httpx.MockTransport(handler)), detection("shopify_global", "https://shop.app"), "boot", 10, DESTINATION)
+    arguments = bodies[0]["params"]["arguments"]
     assert bodies[0]["params"]["name"] == "search_catalog"
-    assert bodies[0]["params"]["_meta"]["ucp-agent"]["profile"] == "https://agent.test/profile.json"
-    assert result["items"][0]["item_ref"]["product_id"] == "gid://shopify/p/abc"
+    assert arguments["meta"]["ucp-agent"]["profile"] == "https://agent.test/profile.json"
+    assert arguments["catalog"]["filters"]["ships_to"] == {"country": "US", "region": "CA", "postal_code": "94103"}
+    assert result["items"][0]["price"] == {"amount": "40.00", "currency": "USD"}
+    assert result["items"][0]["item_ref"] == {"platform": "shopify_global", "product_id": "gid://shopify/p/abc", "variant_id": "gid://shopify/ProductVariant/1"}
+
+
+def test_shopify_global_search_writes_handles_and_shopify_merchants(tmp_path: Path) -> None:
+    data = DataStore(tmp_path)
+    data.settings_path.write_text(json.dumps({"shopify_global": {"profile_url": "https://agent.test/profile.json"}}))
+    payload = json.loads((FIXTURES / "marketplace-shopify-global-search.json").read_text())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=payload, request=request)
+
+    result = Storefront(data, lambda origin: httpx.MockTransport(handler)).search(
+        [{"store": "https://shop.app", "query": "boot"}]
+    )
+
+    assert result["run"] == "r1"
+    assert result["stores"][0]["items"][0]["price"] == [40, 45]
+    assert result["stores"][0]["items"][0]["variants"] == ["Black / 10", "Brown / 11"]
+    cached = data.resolve_handle("r1.1.1")
+    assert cached["image_urls"] == ["https://cdn.shopify.com/trail-boot.jpg"]
+    assert data.vendor("https://merchant.test")["evidence"] == ["global_catalog_result"]
+    assert data.vendor("https://other-merchant.test")["platform"] == "shopify"
+
+
+def test_shopify_global_product_uses_get_product_ucp_shape() -> None:
+    search_payload = json.loads((FIXTURES / "marketplace-shopify-global-search.json").read_text())
+    product = search_payload["result"]["structuredContent"]["products"][0]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["params"]["name"] == "get_product"
+        assert body["params"]["arguments"]["catalog"]["id"] == "gid://shopify/p/abc"
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {"structuredContent": {"product": product}}}, request=request)
+
+    result = ShopifyGlobal({"shopify_global": {"profile_url": "https://agent.test/profile.json"}}).product(
+        Session(httpx.MockTransport(handler)),
+        detection("shopify_global", "https://shop.app"),
+        {"ref": {"platform": "shopify_global", "store": "https://shop.app", "product_id": "gid://shopify/p/abc"}},
+        DESTINATION,
+    )
+
+    assert result["kind"] == "search"
+    assert [item["variant"] for item in result["items"]] == ["Black / 10", "Brown / 11"]
 
 
 def test_shopify_global_requires_profile_url() -> None:

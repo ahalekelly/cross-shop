@@ -631,11 +631,16 @@ def _normalize_variant(value: dict[str, Any], platform: str, origin: str) -> dic
     reference = value.get("item_ref", value.get("ref"))
     if not isinstance(reference, dict):
         raise ToolError(f"{platform} product omitted its ref")
+    if reference.get("platform") != platform:
+        raise ToolError(f"{platform} adapter returned a ref for another platform")
     reference = {**reference, "store": origin}
     validate_ref(reference)
     raw_price = value.get("price")
+    raw_max_price = value.get("max_price")
     if raw_price is not None and not isinstance(raw_price, dict):
         raise ToolError(f"{platform} product price must be money")
+    if raw_max_price is not None and not isinstance(raw_max_price, dict):
+        raise ToolError(f"{platform} product max_price must be money")
     image_urls = value.get("image_urls", value.get("images", []))
     if isinstance(image_urls, list) and all(isinstance(item, str) for item in image_urls):
         images = image_urls
@@ -649,7 +654,8 @@ def _normalize_variant(value: dict[str, Any], platform: str, origin: str) -> dic
         "title": title, "description": value.get("description", value.get("short_description", "")),
         "url": canonical_url(url) if url else "", "available": value.get("available"),
         "name": name, "options": options, "ref": reference,
-        "price": _amount(raw_price), "currency": raw_price.get("currency") if isinstance(raw_price, dict) else None,
+        "price": _amount(raw_price), "max_price": _amount(raw_max_price),
+        "currency": raw_price.get("currency") if isinstance(raw_price, dict) else None,
         "image_urls": images,
         **({"lead": True} if value.get("lead") is True else {}),
         **({"shipping_options": value["shipping_options"]} if isinstance(value.get("shipping_options"), list) else {}),
@@ -683,7 +689,7 @@ def _amount(value: dict[str, Any] | None) -> int | float | None:
 
 
 def _product_price(product: dict[str, Any]) -> int | float | list[int | float] | None:
-    prices = sorted({value["price"] for value in product["variants"] if value.get("price") is not None})
+    prices = sorted({price for value in product["variants"] for price in (value.get("price"), value.get("max_price")) if price is not None})
     if not prices:
         return None
     return prices[0] if len(prices) == 1 else [prices[0], prices[-1]]

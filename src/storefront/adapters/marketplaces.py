@@ -10,13 +10,61 @@ from typing import Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
-from storefront.core import DetectedStore, Session, ToolError, api_error, item_ref, json_object, money
+from storefront.core import (
+    DetectedStore,
+    Session,
+    ToolError,
+    api_error,
+    item_ref,
+    json_object,
+    minor_money,
+    money,
+)
 
 ALIEXPRESS_URL = "https://api.taobao.com/router/rest"
 SERPAPI_URL = "https://serpapi.com/search.json"
 EBAY_API = "https://api.ebay.com"
 EBAY_TOKEN = "https://api.ebay.com/identity/v1/oauth2/token"
-SHOPIFY_GLOBAL_MCP = "https://discover.shopify.com/api/ucp/mcp"
+SHOPIFY_GLOBAL_MCP = "https://catalog.shopify.com/api/ucp/mcp"
+ZERO_DIGIT_CURRENCIES = {
+    "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW",
+    "PYG", "RWF", "UGX", "VND", "VUV", "XAF", "XOF", "XPF",
+}
+THREE_DIGIT_CURRENCIES = {
+    "BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND",
+}
+FOUR_DIGIT_CURRENCIES = {"CLF", "UYW"}
+
+
+def _ships_to(destination: dict[str, str]) -> dict[str, str]:
+    return {
+        key: destination[key]
+        for key in ("country", "region", "postal_code")
+        if key in destination
+    }
+
+
+def _ucp_money(value: object) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise ToolError("Shopify Global Catalog price must be an object")
+    amount, currency = value.get("amount"), value.get("currency")
+    if (
+        isinstance(amount, bool)
+        or not isinstance(amount, int)
+        or not isinstance(currency, str)
+    ):
+        raise ToolError(
+            "Shopify Global Catalog price requires an integer amount and currency"
+        )
+    if currency in ZERO_DIGIT_CURRENCIES:
+        digits = 0
+    elif currency in THREE_DIGIT_CURRENCIES:
+        digits = 3
+    elif currency in FOUR_DIGIT_CURRENCIES:
+        digits = 4
+    else:
+        digits = 2
+    return minor_money(str(amount), currency, digits)
 
 
 class AliExpress:
@@ -149,8 +197,15 @@ class Ebay:
             if response.status_code != 200 or not isinstance(payload.get("access_token"), str):
                 raise ToolError("eBay OAuth client-credentials token request failed")
             self.token = payload["access_token"]
-        location = f"contextualLocation=country={destination['country']},zip={destination['postal_code']}"
-        return {"Authorization": f"Bearer {self.token}", "X-EBAY-C-MARKETPLACE-ID": "EBAY_US", "X-EBAY-C-ENDUSERCTX": location}
+        location = quote(
+            f"country={destination['country']},zip={destination['postal_code']}",
+            safe=",",
+        )
+        return {
+            "Authorization": f"Bearer {self.token}",
+            "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+            "X-EBAY-C-ENDUSERCTX": f"contextualLocation={location}",
+        }
 
     def search(self, session: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
         del detection
@@ -176,12 +231,25 @@ class Ebay:
         del detection
         reference = item.get("ref")
         item_id = reference.get("item_id") if isinstance(reference, dict) else item.get("item_id")
-        if not isinstance(item_id, str):
+        if isinstance(item_id, str):
+            response = session.request(
+                "GET",
+                EBAY_API + "/buy/browse/v1/item/" + quote(item_id, safe=""),
+                headers=self._headers(session, destination),
+            )
+        else:
             url = item.get("url")
             if not isinstance(url, str):
                 raise ToolError("eBay product requires an item URL or ref")
-            item_id = url.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
-        response = session.request("GET", EBAY_API + "/buy/browse/v1/item/" + quote(item_id, safe=""), headers=self._headers(session, destination))
+            legacy_id = url.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
+            if not legacy_id.isdecimal():
+                raise ToolError("eBay item URL must end with a numeric legacy item ID")
+            response = session.request(
+                "GET",
+                EBAY_API + "/buy/browse/v1/item/get_item_by_legacy_id",
+                headers=self._headers(session, destination),
+                params={"legacy_item_id": legacy_id},
+            )
         payload = json_object(response, "eBay Browse item")
         if response.status_code != 200:
             return api_error(self.platform, "product", "eBay Browse getItem failed", response.status_code)
@@ -204,10 +272,27 @@ class ShopifyGlobal:
         value = settings.get("shopify_global")
         self.profile_url = value.get("profile_url") if isinstance(value, dict) else None
 
-    def _call(self, session: Session, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    def _call(self, session: Session, name: str, catalog: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(self.profile_url, str):
             raise ToolError("Configure settings.shopify_global.profile_url with a public UCP agent profile")
-        response = session.request("POST", SHOPIFY_GLOBAL_MCP, headers={"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}, json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": arguments, "_meta": {"ucp-agent": {"profile": self.profile_url}}}})
+        arguments = {
+            "meta": {"ucp-agent": {"profile": self.profile_url}},
+            "catalog": catalog,
+        }
+        response = session.request(
+            "POST",
+            SHOPIFY_GLOBAL_MCP,
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": name, "arguments": arguments},
+            },
+        )
         payload = json_object(response, "Shopify Global Catalog MCP")
         if response.status_code != 200 or "error" in payload:
             return api_error(self.platform, name, "Shopify Global Catalog request failed", response.status_code)
@@ -221,28 +306,96 @@ class ShopifyGlobal:
 
     def search(self, session: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
         del detection
-        payload = self._call(session, "search_catalog", {"catalog": {"query": query, "filters": {"ships_to": {"country": destination["country"], "region": destination.get("region"), "postal_code": destination["postal_code"]}}, "pagination": {"limit": limit}, "view": "offer"}})
+        payload = self._call(
+            session,
+            "search_catalog",
+            {
+                "query": query,
+                "filters": {"ships_to": _ships_to(destination)},
+                "pagination": {"limit": limit},
+                "view": "offer",
+            },
+        )
         if payload.get("status") == "api_error":
             return payload
         products = payload.get("products", [])
         if not isinstance(products, list):
             raise ToolError("Shopify Global Catalog omitted products")
-        return {"kind": "search", "platform": self.platform, "items": [self._item(value) for value in products]}
+        items = [item for product in products for item in self._items(product)]
+        return {"kind": "search", "platform": self.platform, "items": items}
 
-    def _item(self, value: object) -> dict[str, Any]:
-        if not isinstance(value, dict) or not isinstance(value.get("id"), str) or not isinstance(value.get("title"), str):
+    def _items(self, value: object) -> list[dict[str, Any]]:
+        if (
+            not isinstance(value, dict)
+            or not isinstance(value.get("id"), str)
+            or not isinstance(value.get("title"), str)
+        ):
             raise ToolError("Shopify Global Catalog product has invalid identity")
-        price = value.get("price_range", value.get("price"))
-        if not isinstance(price, dict):
-            raise ToolError("Shopify Global Catalog product omitted price")
-        amount = price.get("min", price.get("amount"))
-        currency = price.get("currency", price.get("currency_code", "USD"))
+        product_id = value["id"]
+        if not product_id.startswith("gid://shopify/p/"):
+            raise ToolError("Shopify Global Catalog product has invalid universal product ID")
+        description = value.get("description", {})
+        if not isinstance(description, dict):
+            raise ToolError("Shopify Global Catalog description must be an object")
+        text = description.get("html", description.get("plain", ""))
+        if not isinstance(text, str):
+            raise ToolError("Shopify Global Catalog description text must be a string")
         media = value.get("media", [])
-        images = [item["url"] for item in media if isinstance(item, dict) and isinstance(item.get("url"), str)] if isinstance(media, list) else []
-        offers = value.get("offers", [])
-        merchant_urls = [offer.get("url") for offer in offers if isinstance(offer, dict) and isinstance(offer.get("url"), str)] if isinstance(offers, list) else []
-        url = merchant_urls[0] if merchant_urls else "https://shop.app"
-        return {"title": value["title"], "description": value.get("description", ""), "price": money(amount, currency), "product_url": url, "image_urls": images, "item_ref": item_ref(self.platform, {"product_id": value["id"]}), "merchant_urls": merchant_urls}
+        variants = value.get("variants", [])
+        if not isinstance(media, list) or not isinstance(variants, list):
+            raise ToolError("Shopify Global Catalog media and variants must be arrays")
+        images = [
+            item["url"]
+            for item in media
+            if isinstance(item, dict)
+            and item.get("type") == "image"
+            and isinstance(item.get("url"), str)
+        ]
+        product_url = value.get("url")
+        if not isinstance(product_url, str):
+            raise ToolError("Shopify Global Catalog product omitted its merchant URL")
+        merchant_urls = [product_url]
+        items = []
+        for variant in variants:
+            if (
+                not isinstance(variant, dict)
+                or not isinstance(variant.get("id"), str)
+                or not isinstance(variant.get("title"), str)
+            ):
+                raise ToolError("Shopify Global Catalog variant has invalid identity")
+            seller = variant.get("seller")
+            if isinstance(seller, dict) and isinstance(seller.get("url"), str):
+                merchant_urls.append(seller["url"])
+            availability = variant.get("availability")
+            if not isinstance(availability, dict) or not isinstance(availability.get("available"), bool):
+                raise ToolError("Shopify Global Catalog variant omitted availability")
+            options = variant.get("options", [])
+            if not isinstance(options, list):
+                raise ToolError("Shopify Global Catalog variant options must be an array")
+            items.append({
+                "title": value["title"], "description": text,
+                "price": _ucp_money(variant.get("price")), "product_url": product_url,
+                "image_urls": images, "available": availability["available"],
+                "variant": variant["title"], "options": options,
+                "item_ref": item_ref(self.platform, {"product_id": product_id, "variant_id": variant["id"]}),
+                "merchant_urls": list(dict.fromkeys(merchant_urls)),
+            })
+        if items:
+            merchant_urls = list(dict.fromkeys(merchant_urls))
+            for item in items:
+                item["merchant_urls"] = merchant_urls
+            return items
+        price_range = value.get("price_range")
+        if not isinstance(price_range, dict):
+            raise ToolError("Shopify Global Catalog product omitted price_range")
+        return [{
+            "title": value["title"], "description": text,
+            "price": _ucp_money(price_range.get("min")),
+            "max_price": _ucp_money(price_range.get("max", price_range.get("min"))),
+            "product_url": product_url, "image_urls": images,
+            "item_ref": item_ref(self.platform, {"product_id": product_id}),
+            "merchant_urls": merchant_urls,
+        }]
 
     def product(self, session: Session, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
         del detection
@@ -250,10 +403,18 @@ class ShopifyGlobal:
         product_id = reference.get("product_id") if isinstance(reference, dict) else item.get("product_id")
         if not isinstance(product_id, str):
             raise ToolError("Shopify Global product requires a product ref")
-        payload = self._call(session, "get_product", {"catalog": {"id": product_id, "filters": {"ships_to": {"country": destination["country"], "postal_code": destination["postal_code"]}}, "view": "summary"}})
+        payload = self._call(
+            session,
+            "get_product",
+            {
+                "id": product_id,
+                "filters": {"ships_to": _ships_to(destination)},
+                "view": "summary",
+            },
+        )
         if payload.get("status") == "api_error":
             return payload
-        return self._item(payload.get("product"))
+        return {"kind": "search", "platform": self.platform, "items": self._items(payload.get("product"))}
 
     def quote(self, session: Session, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
         del session, detection, lines, destination

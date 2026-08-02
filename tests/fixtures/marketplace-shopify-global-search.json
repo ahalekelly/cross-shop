@@ -1,1 +1,63 @@
-{"jsonrpc":"2.0","id":1,"result":{"structuredContent":{"products":[{"id":"gid://shopify/p/abc","title":"Boot","description":"Trail boot","price_range":{"min":"40","currency":"USD"},"offers":[{"url":"https://merchant.example/products/boot"}]}]}}}
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "structuredContent": {
+      "ucp": {
+        "version": "2026-04-08",
+        "capabilities": {
+          "dev.ucp.shopping.catalog.search": [{"version": "2026-04-08"}],
+          "dev.shopify.catalog.global": [{"version": "2026-04-08"}]
+        }
+      },
+      "products": [
+        {
+          "id": "gid://shopify/p/abc",
+          "title": "Trail Boot",
+          "description": {"html": "<p>Waterproof trail boot.</p>"},
+          "url": "https://merchant.test/products/trail-boot",
+          "price_range": {
+            "min": {"amount": 4000, "currency": "USD"},
+            "max": {"amount": 4500, "currency": "USD"}
+          },
+          "media": [
+            {"type": "image", "url": "https://cdn.shopify.com/trail-boot.jpg"}
+          ],
+          "variants": [
+            {
+              "id": "gid://shopify/ProductVariant/1",
+              "title": "Black / 10",
+              "price": {"amount": 4000, "currency": "USD"},
+              "availability": {"available": true},
+              "options": [
+                {"name": "Color", "label": "Black"},
+                {"name": "Size", "label": "10"}
+              ],
+              "seller": {
+                "name": "Merchant",
+                "domain": "merchant.test",
+                "url": "https://merchant.test"
+              }
+            },
+            {
+              "id": "gid://shopify/ProductVariant/2",
+              "title": "Brown / 11",
+              "price": {"amount": 4500, "currency": "USD"},
+              "availability": {"available": false},
+              "options": [
+                {"name": "Color", "label": "Brown"},
+                {"name": "Size", "label": "11"}
+              ],
+              "seller": {
+                "name": "Second Merchant",
+                "domain": "other-merchant.test",
+                "url": "https://other-merchant.test"
+              }
+            }
+          ]
+        }
+      ],
+      "pagination": {"has_next_page": false, "total_count": 1}
+    }
+  }
+}

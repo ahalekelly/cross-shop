@@ -297,6 +297,7 @@ REF_KEYS: dict[str, set[str]] = {
     "google_shopping": {"product_id", "merchant_url"}, "amazon": {"asin", "merchant_url"},
     "ebay": {"item_id"}, "shopify_global": {"product_id"},
 }
+OPTIONAL_REF_KEYS: dict[str, set[str]] = {"shopify_global": {"variant_id"}}
 
 
 def item_ref(platform: str, value: dict[str, Any]) -> dict[str, Any]:
@@ -317,7 +318,8 @@ def validate_ref(reference: object) -> dict[str, Any]:
     if not isinstance(platform, str) or platform not in REF_KEYS:
         raise ToolError(f"Ref has unknown platform {platform!r}")
     expected = {"platform", "store"} | REF_KEYS[platform]
-    unknown = set(reference) - expected
+    allowed = expected | OPTIONAL_REF_KEYS.get(platform, set())
+    unknown = set(reference) - allowed
     missing = expected - set(reference)
     if missing:
         raise ToolError(f"{platform} ref is missing: {', '.join(sorted(missing))}")
@@ -325,7 +327,7 @@ def validate_ref(reference: object) -> dict[str, Any]:
         raise ToolError(f"{platform} ref has unknown keys: {', '.join(sorted(unknown))}")
     if not isinstance(store, str) or url_origin(store) != store:
         raise ToolError("Ref store must be a canonical HTTPS origin")
-    for key in REF_KEYS[platform]:
+    for key in REF_KEYS[platform] | (set(reference) & OPTIONAL_REF_KEYS.get(platform, set())):
         value = reference[key]
         if isinstance(value, bool) or not isinstance(value, (str, int)) or value == "" or value == 0:
             raise ToolError(f"{platform} ref has invalid {key}")
@@ -355,8 +357,11 @@ def validate_ref(reference: object) -> dict[str, Any]:
         raise ToolError("ecwid ref has invalid product identity")
     if platform == "aliexpress" and not str(reference["product_id"]).isdecimal():
         raise ToolError("aliexpress ref has invalid product_id")
-    if platform == "shopify_global" and not str(reference["product_id"]).startswith("gid://shopify/p/"):
-        raise ToolError("shopify_global ref has invalid product_id")
+    if platform == "shopify_global" and (
+        not str(reference["product_id"]).startswith("gid://shopify/p/")
+        or ("variant_id" in reference and not str(reference["variant_id"]).startswith("gid://shopify/ProductVariant/"))
+    ):
+        raise ToolError("shopify_global ref has invalid product identity")
     return dict(reference)
 
 

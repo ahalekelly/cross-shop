@@ -73,7 +73,7 @@ Settings example:
 - `SERPAPI_API_KEY`: SerpApi Google Shopping and Amazon engines.
 - `ALIEXPRESS_APP_KEY` and `ALIEXPRESS_APP_SECRET`: AliExpress Affiliate Product Query.
 - `settings.ebay.client_id` and `settings.ebay.client_secret`: eBay Developers Program production Browse API keyset. Production access requires eBay marketplace account-deletion notification compliance.
-- `settings.shopify_global.profile_url`: public UCP agent profile URL required by Shopify's current `/api/ucp/mcp` Global Catalog contract.
+- `settings.shopify_global.profile_url`: public UCP agent profile URL required by Shopify's current `https://catalog.shopify.com/api/ucp/mcp` Global Catalog contract.
 
 Missing marketplace credentials produce a structured setup error only when that marketplace is requested.
 
