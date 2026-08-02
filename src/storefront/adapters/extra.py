@@ -94,7 +94,27 @@ def detect(
     )
 
 
-class Wix:
+class _BrowserBoundary:
+    """Wix, Ecwid, and SFCC publish catalog search but no anonymous exact-detail or cart API."""
+
+    platform: ExtraPlatform
+
+    def product(self, http: Http, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
+        del http, detection, item, destination
+        return api_error(
+            self.platform,
+            "product",
+            f"{self.platform} cannot resolve this input to live exact product detail",
+        )
+
+    def quote(self, http: Http, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
+        del http, detection, lines, destination
+        return unsupported_operation(
+            "quote", self.platform, QUOTE_BOUNDARIES[self.platform], browser_required=True
+        )
+
+
+class Wix(_BrowserBoundary):
     platform: ExtraPlatform = "wix"
 
     def search(self, http: Http, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
@@ -102,16 +122,8 @@ class Wix:
         _require_query(self.platform, query)
         return _wix_search(http, detection, query, limit)
 
-    def product(self, http: Http, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
-        del http, detection, item, destination
-        return _no_exact_product(self.platform)
 
-    def quote(self, http: Http, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
-        del http, detection, lines, destination
-        return _browser_boundary(self.platform)
-
-
-class Ecwid:
+class Ecwid(_BrowserBoundary):
     platform: ExtraPlatform = "ecwid"
 
     def search(self, http: Http, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
@@ -119,16 +131,8 @@ class Ecwid:
         _require_query(self.platform, query)
         return _ecwid_search(http, detection, query, limit)
 
-    def product(self, http: Http, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
-        del http, detection, item, destination
-        return _no_exact_product(self.platform)
 
-    def quote(self, http: Http, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
-        del http, detection, lines, destination
-        return _browser_boundary(self.platform)
-
-
-class Sfcc:
+class Sfcc(_BrowserBoundary):
     platform: ExtraPlatform = "sfcc"
 
     def search(self, http: Http, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
@@ -136,32 +140,10 @@ class Sfcc:
         _require_query(self.platform, query)
         return _sfcc_search(http, detection, query, limit)
 
-    def product(self, http: Http, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
-        del http, detection, item, destination
-        return _no_exact_product(self.platform)
-
-    def quote(self, http: Http, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
-        del http, detection, lines, destination
-        return _browser_boundary(self.platform)
-
 
 def _require_query(platform: ExtraPlatform, query: str) -> None:
     if not query.strip():
         raise ToolError(f"{platform} search requires a nonempty query")
-
-
-def _no_exact_product(platform: ExtraPlatform) -> dict[str, Any]:
-    return api_error(
-        platform,
-        "product",
-        f"{platform} cannot resolve this input to live exact product detail",
-    )
-
-
-def _browser_boundary(platform: ExtraPlatform) -> dict[str, Any]:
-    return unsupported_operation(
-        "quote", platform, QUOTE_BOUNDARIES[platform], browser_required=True
-    )
 
 
 def _wix_search(http: Http, detection: DetectedStore, query: str, limit: int) -> dict[str, object]:
