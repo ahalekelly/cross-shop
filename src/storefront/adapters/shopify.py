@@ -201,7 +201,7 @@ class Shopify:
         return api_error(
             self.platform,
             "product",
-            "shopify cannot resolve this input to live exact product detail",
+            f"{self.platform} cannot resolve this input to live exact product detail",
         )
 
     def quote(self, http: Http, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:

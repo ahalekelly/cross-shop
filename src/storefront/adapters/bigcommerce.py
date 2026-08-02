@@ -192,7 +192,7 @@ class BigCommerce:
             return api_error(
                 PLATFORM,
                 "product",
-                "bigcommerce cannot resolve this input to live exact product detail",
+                f"{PLATFORM} cannot resolve this input to live exact product detail",
             )
         response = http.request("GET", url, follow_redirects=True)
         if response.status_code != 200:

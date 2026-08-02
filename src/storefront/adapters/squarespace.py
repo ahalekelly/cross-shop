@@ -100,7 +100,7 @@ class Squarespace:
         return api_error(
             PLATFORM,
             "product",
-            "squarespace cannot resolve this input to live exact product detail",
+            f"{PLATFORM} cannot resolve this input to live exact product detail",
         )
 
     def quote(self, http: Http, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
