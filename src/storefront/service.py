@@ -34,10 +34,7 @@ STOREFRONT_PLATFORMS = (
     "shopify", "woocommerce", "magento", "bigcommerce", "squarespace",
     "wix", "ecwid", "sfcc",
 )
-LEGACY_MODULES = {
-    "squarespace": squarespace,
-    "wix": extra, "ecwid": extra, "sfcc": extra,
-}
+LEGACY_MODULES = {"wix": extra, "ecwid": extra, "sfcc": extra}
 PASSIVE_DETECTORS = (bigcommerce.detect, squarespace.detect, extra.detect)
 ACTIVE_DETECTORS = (
     ("woocommerce", woocommerce.detect),
@@ -86,17 +83,6 @@ class LegacyAdapter:
             or (reference.get("product_url") if isinstance(reference, dict) else None)
             or (cached.get("url") if isinstance(cached, dict) else None)
         )
-        if platform == "squarespace":
-            collection = reference.get("collection_url") if isinstance(reference, dict) else url
-            if isinstance(collection, str):
-                response = session.request("GET", collection, params={"format": "json"}, follow_redirects=True)
-                if response.status_code != 200:
-                    return api_error(platform, "product", "Squarespace product JSON failed", response.status_code)
-                values = squarespace._payload_items(json_object(response, "Squarespace product"), "", detection.origin)
-                if isinstance(reference, dict):
-                    values = [value for value in values if value.get("sku") == reference.get("sku")]
-                if values:
-                    return {"kind": "search", "platform": platform, "items": values}
         return api_error(
             platform,
             "product",
@@ -127,6 +113,7 @@ class Storefront:
             "woocommerce": woocommerce.WooCommerce(),
             "magento": magento.Magento(),
             "bigcommerce": bigcommerce.BigCommerce(),
+            "squarespace": squarespace.Squarespace(),
             "aliexpress": AliExpress(), "google_shopping": SerpApi("google_shopping"),
             "amazon": SerpApi("amazon"), "ebay": Ebay(settings),
             "shopify_global": ShopifyGlobal(settings),

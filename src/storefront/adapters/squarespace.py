@@ -8,13 +8,13 @@ from urllib.parse import urljoin, urlsplit
 
 import httpx
 from storefront.core import (
-    DEFAULT_DESTINATION,
     DetectedStore,
     Http,
     SquarespaceQuote,
     SquarespaceSearch,
     SquarespaceShipping,
     ToolError,
+    api_error,
     bot_wall,
     canonical_url,
     destination_for,
@@ -64,7 +64,50 @@ class SearchParser(HTMLParser):
             self.urls.append(values["data-url"] or "")
 
 
-def search(http: Http, detection: DetectedStore, query: str) -> dict[str, object]:
+class Squarespace:
+    platform = PLATFORM
+
+    def search(self, http: Http, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
+        del destination
+        return _search(http, detection, query, limit)
+
+    def product(self, http: Http, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
+        del destination
+        reference = item.get("ref")
+        collection = (
+            reference["collection_url"] if reference is not None else item.get("url")
+        )
+        if isinstance(collection, str):
+            response = http.request(
+                "GET", collection, params={"format": "json"}, follow_redirects=True
+            )
+            if response.status_code != 200:
+                return api_error(
+                    PLATFORM,
+                    "product",
+                    "Squarespace product JSON failed",
+                    response.status_code,
+                )
+            values = _payload_items(
+                json_object(response, "Squarespace product"), "", detection.origin
+            )
+            if reference is not None:
+                values = [
+                    value for value in values if value["sku"] == reference["sku"]
+                ]
+            if values:
+                return {"kind": "search", "platform": PLATFORM, "items": values}
+        return api_error(
+            PLATFORM,
+            "product",
+            "squarespace cannot resolve this input to live exact product detail",
+        )
+
+    def quote(self, http: Http, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
+        return _quote(http, detection, lines, destination)
+
+
+def _search(http: Http, detection: DetectedStore, query: str, limit: int) -> dict[str, object]:
     if urlsplit(detection.entry_url).path not in {"", "/"}:
         response = http.get(http.squarespace_entry_json(detection.entry_url))
         terminal = _terminal(
@@ -80,7 +123,7 @@ def search(http: Http, detection: DetectedStore, query: str) -> dict[str, object
             json_object(response, "Squarespace commerce page"), query, detection.origin
         )
         return search_result(
-            SquarespaceSearch(discovery="explicit_entry_url"), query, items
+            SquarespaceSearch(discovery="explicit_entry_url"), query, items[:limit]
         )
 
     response = http.get(http.squarespace_search(detection.origin, query))
@@ -129,10 +172,12 @@ def search(http: Http, detection: DetectedStore, query: str) -> dict[str, object
             if identity not in identities:
                 identities.add(identity)
                 items.append(item)
-    return search_result(SquarespaceSearch(discovery="storefront_search"), query, items)
+    return search_result(
+        SquarespaceSearch(discovery="storefront_search"), query, items[:limit]
+    )
 
 
-def quote_many(
+def _quote(
     http: Http,
     detection: DetectedStore,
     lines: list[dict[str, Any]],
@@ -142,8 +187,24 @@ def quote_many(
     for line in lines:
         reference = parse_item_ref(line["ref"], PLATFORM)
         if set(reference) != {"collection_url", "item_id", "sku"}:
-            raise ToolError("Squarespace ref has unexpected fields")
-        selected.append((reference["collection_url"], reference["item_id"], reference["sku"], line["quantity"]))
+            raise ToolError("Squarespace item_ref has unexpected fields")
+        collection_url = reference["collection_url"]
+        item_id = reference["item_id"]
+        sku = reference["sku"]
+        if not all(
+            isinstance(value, str) and value
+            for value in (collection_url, item_id, sku)
+        ):
+            raise ToolError("Squarespace item_ref has invalid product identity")
+        if (
+            canonical_url(collection_url) != collection_url
+            or url_origin(collection_url) != detection.origin
+        ):
+            raise ToolError(
+                "Squarespace item_ref collection URL must be canonical and on the detected storefront"
+            )
+        selected.append((collection_url, item_id, sku, line["quantity"]))
+
     http.client.cookies.clear()
     collections: dict[str, dict[str, Any]] = {}
     for collection_url, item_id, sku, _ in selected:
@@ -151,197 +212,122 @@ def quote_many(
             response = http.request(
                 "GET", collection_url, params={"format": "json"}, follow_redirects=True
             )
+            terminal = _terminal(
+                "quote", collection_url, response, "public collection data refused"
+            )
+            if terminal:
+                return terminal
             if response.status_code != 200:
-                raise ToolError(f"Squarespace collection returned HTTP {response.status_code}")
-            collections[collection_url] = json_object(response, "Squarespace collection")
-        payload = collections[collection_url]
-        products = payload.get("items")
-        if not isinstance(products, list):
-            raise ToolError("Squarespace collection omitted its products")
+                raise ToolError(
+                    f"Squarespace collection returned HTTP {response.status_code}"
+                )
+            payload = json_object(response, "Squarespace collection")
+            if not _is_product_collection(payload) or not isinstance(
+                payload.get("items"), list
+            ):
+                raise ToolError(
+                    "Squarespace item_ref collection is not a product collection"
+                )
+            collections[collection_url] = payload
+        products = [
+            value
+            for value in collections[collection_url]["items"]
+            if isinstance(value, dict) and value.get("id") == item_id
+        ]
+        if len(products) != 1:
+            raise ToolError(
+                "Squarespace collection did not contain exactly the selected item"
+            )
+        variants = products[0].get("variants")
+        if not isinstance(variants, list):
+            raise ToolError("Squarespace selected item omitted its variants")
         matches = [
-            product
-            for product in products
-            if isinstance(product, dict) and product.get("id") == item_id
+            value
+            for value in variants
+            if isinstance(value, dict) and value.get("sku") == sku
         ]
-        if len(matches) != 1 or not isinstance(matches[0].get("variants"), list):
-            raise ToolError("Squarespace ref no longer resolves to exactly one product")
-        variants = [
-            variant
-            for variant in matches[0]["variants"]
-            if isinstance(variant, dict) and variant.get("sku") == sku
-        ]
-        if len(variants) != 1 or not _available(variants[0]):
-            raise ToolError("Squarespace ref variant is not currently available")
-    crumb = _cookie(http, "crumb")
-    headers = {"X-CSRF-Token": crumb, "Add-To-Cart-Id": str(uuid.uuid4())}
+        if len(matches) != 1:
+            raise ToolError(
+                "Squarespace selected item did not contain exactly the selected SKU"
+            )
+        if not _available(matches[0]):
+            raise ToolError("Squarespace selected variant is not currently available")
+
+    headers = {"X-CSRF-Token": _cookie(http, "crumb"), "Add-To-Cart-Id": str(uuid.uuid4())}
     cart_token = None
     for _, item_id, sku, quantity in selected:
         response = http.request(
-            "POST", detection.origin + "/api/commerce/shopping-cart/entries",
+            "POST",
+            detection.origin + "/api/commerce/shopping-cart/entries",
             headers=headers,
-            json={"itemId": item_id, "sku": sku, "quantity": quantity, "additionalFields": None},
+            json={
+                "itemId": item_id,
+                "sku": sku,
+                "quantity": quantity,
+                "additionalFields": None,
+            },
         )
-        terminal = _terminal("quote", "/api/commerce/shopping-cart/entries", response, "anonymous cart mutation refused")
+        terminal = _terminal(
+            "quote",
+            "/api/commerce/shopping-cart/entries",
+            response,
+            "anonymous cart mutation refused",
+        )
         if terminal:
             return terminal
+        if response.status_code != 200:
+            raise ToolError(
+                f"Squarespace cart add returned HTTP {response.status_code}"
+            )
         added = json_object(response, "Squarespace cart add")
+        if added.get("error") or added.get("crumbFail") is True:
+            return gated(
+                "quote",
+                PLATFORM,
+                "/api/commerce/shopping-cart/entries",
+                response,
+                "cart rejected its CSRF token or selected product",
+            )
+        newly_added = added.get("newlyAdded")
         cart = added.get("shoppingCart")
-        if response.status_code != 200 or not isinstance(cart, dict) or not isinstance(cart.get("cartToken"), str):
+        entries = cart.get("entries") if isinstance(cart, dict) else None
+        if (
+            not isinstance(newly_added, dict)
+            or not isinstance(cart, dict)
+            or not isinstance(entries, list)
+        ):
+            raise ToolError("Squarespace cart add omitted its selected item or cart")
+        if (
+            newly_added.get("itemId") != item_id
+            or _entry_sku(newly_added) != sku
+            or newly_added.get("quantity") != quantity
+        ):
+            raise ToolError("Squarespace cart add did not return the selected product")
+        matches = [
+            entry
+            for entry in entries
+            if isinstance(entry, dict)
+            and entry.get("itemId") == item_id
+            and _entry_sku(entry) == sku
+        ]
+        if len(matches) != 1:
+            raise ToolError(
+                "Squarespace cart did not contain exactly the selected product"
+            )
+        returned_token = cart.get("cartToken")
+        if not isinstance(returned_token, str) or not returned_token:
             raise ToolError("Squarespace cart add omitted its cart token")
-        returned_token = cart["cartToken"]
         if cart_token is not None and returned_token != cart_token:
             raise ToolError("Squarespace cart token changed across line additions")
-        added_line = added.get("newlyAdded")
-        chosen = added_line.get("chosenVariant") if isinstance(added_line, dict) else None
-        if (
-            not isinstance(added_line, dict)
-            or added_line.get("itemId") != item_id
-            or not isinstance(chosen, dict)
-            or chosen.get("sku") != sku
-            or added_line.get("quantity") != quantity
-        ):
-            raise ToolError("Squarespace cart add did not confirm the requested line")
         cart_token = returned_token
     if cart_token is None:
-        raise AssertionError("quote_many requires lines")
-    shipping_response = http.request(
-        "PUT", detection.origin + f"/api/3/commerce/cart/{cart_token}/shipping/location",
-        headers=headers, json=destination_for(PLATFORM, destination),
-    )
-    if shipping_response.status_code != 200:
-        raise ToolError(f"Squarespace shipping location returned HTTP {shipping_response.status_code}")
-    result = json_object(shipping_response, "Squarespace shipping location")
-    status = result.get("shippingOptionsStatus")
-    if status not in {"APPLICABLE_SHIPPING_OPTIONS", "SHIPPING_NOT_REQUIRED", "POSTAL_CODE_NOT_APPLICABLE"}:
-        raise ToolError(f"Squarespace returned unknown shippingOptionsStatus {status!r}")
-    subtotal_value = result.get("subtotal")
-    raw_options = result.get("fulfillmentOptions")
-    if not isinstance(subtotal_value, dict) or not isinstance(raw_options, list):
-        raise ToolError("Squarespace shipping response omitted subtotal or options")
-    subtotal = money(subtotal_value.get("decimalValue"), subtotal_value.get("currencyCode"))
-    options = [_shipping_option(value) for value in raw_options]
-    return quote_outcome(SquarespaceQuote(shipping_options_status=status), options, subtotal, no_quote_reason="empty_rate_list")
-
-
-def quote(http: Http, detection: DetectedStore, reference: object) -> dict[str, object]:
-    selected = parse_item_ref(reference, PLATFORM)
-    if set(selected) != {"collection_url", "item_id", "sku"}:
-        raise ToolError("Squarespace item_ref has unexpected fields")
-    collection_url = selected["collection_url"]
-    item_id = selected["item_id"]
-    sku = selected["sku"]
-    if not all(
-        isinstance(value, str) and value for value in (collection_url, item_id, sku)
-    ):
-        raise ToolError("Squarespace item_ref has invalid product identity")
-    if (
-        canonical_url(collection_url) != collection_url
-        or url_origin(collection_url) != detection.origin
-    ):
-        raise ToolError(
-            "Squarespace item_ref collection URL must be canonical and on the detected storefront"
-        )
-
-    http.client.cookies.clear()
-    collection = http.request(
-        "GET", collection_url, params={"format": "json"}, follow_redirects=True
-    )
-    terminal = _terminal(
-        "quote", collection_url, collection, "public collection data refused"
-    )
-    if terminal:
-        return terminal
-    if collection.status_code != 200:
-        raise ToolError(
-            f"Squarespace collection returned HTTP {collection.status_code}"
-        )
-    payload = json_object(collection, "Squarespace collection")
-    if not _is_product_collection(payload) or not isinstance(
-        payload.get("items"), list
-    ):
-        raise ToolError("Squarespace item_ref collection is not a product collection")
-    products = [
-        value
-        for value in payload["items"]
-        if isinstance(value, dict) and value.get("id") == item_id
-    ]
-    if len(products) != 1:
-        raise ToolError(
-            "Squarespace collection did not contain exactly the selected item"
-        )
-    variants = products[0].get("variants")
-    if not isinstance(variants, list):
-        raise ToolError("Squarespace selected item omitted its variants")
-    selected_variants = [
-        value
-        for value in variants
-        if isinstance(value, dict) and value.get("sku") == sku
-    ]
-    if len(selected_variants) != 1:
-        raise ToolError(
-            "Squarespace selected item did not contain exactly the selected SKU"
-        )
-    if not _available(selected_variants[0]):
-        raise ToolError("Squarespace selected variant is not currently available")
-    crumb = _cookie(http, "crumb")
-    headers = {"X-CSRF-Token": crumb, "Add-To-Cart-Id": str(uuid.uuid4())}
-
-    added_response = http.request(
-        "POST",
-        detection.origin + "/api/commerce/shopping-cart/entries",
-        headers=headers,
-        json={"itemId": item_id, "sku": sku, "quantity": 1, "additionalFields": None},
-    )
-    terminal = _terminal(
-        "quote",
-        "/api/commerce/shopping-cart/entries",
-        added_response,
-        "anonymous cart mutation refused",
-    )
-    if terminal:
-        return terminal
-    if added_response.status_code != 200:
-        raise ToolError(
-            f"Squarespace cart add returned HTTP {added_response.status_code}"
-        )
-    added = json_object(added_response, "Squarespace cart add")
-    if added.get("error") or added.get("crumbFail") is True:
-        return gated(
-            "quote",
-            PLATFORM,
-            "/api/commerce/shopping-cart/entries",
-            added_response,
-            "cart rejected its CSRF token or selected product",
-        )
-    newly_added = added.get("newlyAdded")
-    cart = added.get("shoppingCart")
-    entries = cart.get("entries") if isinstance(cart, dict) else None
-    if (
-        not isinstance(newly_added, dict)
-        or not isinstance(cart, dict)
-        or not isinstance(entries, list)
-    ):
-        raise ToolError("Squarespace cart add omitted its selected item or cart")
-    if newly_added.get("itemId") != item_id or _entry_sku(newly_added) != sku:
-        raise ToolError("Squarespace cart add did not return the selected product")
-    matches = [
-        entry
-        for entry in entries
-        if isinstance(entry, dict)
-        and entry.get("itemId") == item_id
-        and _entry_sku(entry) == sku
-    ]
-    if len(matches) != 1:
-        raise ToolError("Squarespace cart did not contain exactly the selected product")
-    cart_token = cart.get("cartToken")
-    if not isinstance(cart_token, str) or not cart_token:
-        raise ToolError("Squarespace cart add omitted its cart token")
+        raise ToolError("Squarespace quote requires at least one line")
 
     shipping_response = http.request(
         "PUT",
         detection.origin + f"/api/3/commerce/cart/{cart_token}/shipping/location",
         headers=headers,
-        json=destination_for(PLATFORM, DEFAULT_DESTINATION),
+        json=destination_for(PLATFORM, destination),
     )
     terminal = _terminal(
         "quote",

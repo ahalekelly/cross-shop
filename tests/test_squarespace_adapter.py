@@ -52,6 +52,10 @@ def response(
     return httpx.Response(status, content=content, headers=headers, request=request)
 
 
+def adapter() -> squarespace.Squarespace:
+    return squarespace.Squarespace()
+
+
 def detection(entry_url: str = "https://squarespace.test/") -> DetectedStore:
     return DetectedStore(
         origin="https://squarespace.test",
@@ -126,7 +130,7 @@ class SquarespaceTests(unittest.TestCase):
 
         http = Http(httpx.MockTransport(handler))
         with http.client:
-            result = squarespace.search(http, detection(), "KITSUI")
+            result = adapter().search(http, detection(), "KITSUI", 20, DEFAULT_DESTINATION)
 
         self.assertEqual(result["kind"], "search")
         self.assertEqual(result["discovery"], "storefront_search")
@@ -200,10 +204,12 @@ class SquarespaceTests(unittest.TestCase):
                     ["https://squarespace.test"],
                 )
             )
-            result = squarespace.search(
+            result = adapter().search(
                 http,
                 detection("https://squarespace.test/chairs-and-stools"),
                 "KITSUI",
+                20,
+                DEFAULT_DESTINATION,
             )
 
         self.assertEqual(result["kind"], "search")
@@ -250,7 +256,7 @@ class SquarespaceTests(unittest.TestCase):
 
         http = Http(httpx.MockTransport(handler))
         with http.client:
-            result = squarespace.quote(http, detection(), reference())
+            result = adapter().quote(http, detection(), [{"ref": reference(), "quantity": 1}], DEFAULT_DESTINATION)
 
         self.assertEqual(result["kind"], "quote")
         self.assertEqual(result["subtotal"], {"amount": "1427.00", "currency": "USD"})
@@ -300,7 +306,7 @@ class SquarespaceTests(unittest.TestCase):
 
         http = Http(httpx.MockTransport(handler))
         with http.client, self.assertRaisesRegex(ToolError, "selected product"):
-            squarespace.quote(http, detection(), reference())
+            adapter().quote(http, detection(), [{"ref": reference(), "quantity": 1}], DEFAULT_DESTINATION)
 
     def test_quote_distinguishes_non_applicable_shipping_statuses(self) -> None:
         for status, reason in (
@@ -339,7 +345,7 @@ class SquarespaceTests(unittest.TestCase):
 
                 http = Http(httpx.MockTransport(handler))
                 with http.client:
-                    result = squarespace.quote(http, detection(), reference())
+                    result = adapter().quote(http, detection(), [{"ref": reference(), "quantity": 1}], DEFAULT_DESTINATION)
                 self.assertEqual(result["kind"], "empty")
                 self.assertEqual(result["reason"], reason)
                 self.assertEqual(result["shipping_options_status"], status)
