@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import quote as url_quote
@@ -10,13 +10,13 @@ from urllib.parse import parse_qsl, urljoin, urlsplit, urlunsplit
 
 import httpx
 from storefront.core import (
-    DEFAULT_DESTINATION,
     Http,
     MagentoDetectedStore,
     MagentoQuote,
     MagentoSearch,
     MagentoShipping,
     ToolError,
+    api_error,
     bot_wall,
     canonical_url,
     destination_for,
@@ -294,20 +294,41 @@ def _homepage_markers(homepage: httpx.Response) -> list[str]:
     return markers
 
 
-def search(
-    http: Http, detection: MagentoDetectedStore, query: str
-) -> dict[str, object]:
-    if detection.search_source == "graphql":
-        return _graphql_search(http, detection, query)
-    if detection.search_source == "html":
-        return _html_search(http, detection, query)
-    raise AssertionError(detection.search_source)
+class Magento:
+    platform = "magento"
+
+    def search(self, http: Http, detection: MagentoDetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
+        del destination
+        if detection.search_source == "graphql":
+            return _graphql_search(http, detection, query, limit)
+        if detection.search_source == "html":
+            return _html_search(http, detection, query, limit)
+        raise AssertionError(detection.search_source)
+
+    def product(self, http: Http, detection: MagentoDetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
+        del destination
+        reference = item.get("ref")
+        sku = reference.get("sku") if reference is not None else None
+        if isinstance(sku, str) and detection.search_source == "graphql":
+            envelope, errors = _graphql_detail(http, detection.api_origin, sku)
+            if envelope is None:
+                return api_error(self.platform, "product", str(errors))
+            values, _ = _detail_items(envelope, sku, detection.entry_url)
+            return {"kind": "search", "platform": self.platform, "items": values}
+        return api_error(
+            self.platform,
+            "product",
+            "magento cannot resolve this input to live exact product detail",
+        )
+
+    def quote(self, http: Http, detection: MagentoDetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
+        return _quote(http, detection, lines, destination)
 
 
 def _graphql_search(
-    http: Http, detection: MagentoDetectedStore, query: str
+    http: Http, detection: MagentoDetectedStore, query: str, limit: int
 ) -> dict[str, object]:
-    origin = _magento_origin(detection)
+    origin = detection.api_origin
     response = http.request(
         "POST",
         origin + "/graphql",
@@ -382,93 +403,28 @@ def _graphql_search(
             configurable_products_omitted=omitted,
         ),
         query,
-        _unique_skus(items),
+        _unique_skus(items)[:limit],
     )
 
 
-def quote_many(
+def _quote(
     http: Http,
     detection: MagentoDetectedStore,
     lines: list[dict[str, Any]],
     destination: dict[str, str],
 ) -> dict[str, object]:
-    origin = _magento_origin(detection)
+    origin = detection.api_origin
     selected = []
     for line in lines:
         reference = parse_item_ref(line["ref"], "magento")
         sku = reference.get("sku")
-        if not isinstance(sku, str) or not sku or any(character in sku for character in "\r\n"):
-            raise ToolError("Magento ref requires one nonempty simple SKU")
+        if set(reference) != {"sku"} or not isinstance(sku, str) or not sku:
+            raise ToolError(
+                "Magento item_ref must contain exactly one nonempty simple SKU"
+            )
+        if any(character in sku for character in "\r\n"):
+            raise ToolError("Magento item_ref SKU cannot contain a newline")
         selected.append((sku, line["quantity"]))
-    create = http.request("POST", origin + "/rest/V1/guest-carts", headers={"Content-Type": "application/json"}, content=b"{}")
-    denied = _denied("quote", "/rest/V1/guest-carts", create, "guest cart API refused")
-    if denied:
-        return denied
-    if create.status_code not in {200, 201}:
-        raise ToolError(f"Magento guest cart returned HTTP {create.status_code}")
-    token = create.json()
-    if not isinstance(token, str) or not 16 <= len(token) <= 128:
-        raise ToolError("Magento guest cart did not return a masked-ID string")
-    cart_path = "/rest/V1/guest-carts/" + quote_path(token)
-    added_items = []
-    for sku, quantity in selected:
-        response = http.request(
-            "POST", origin + cart_path + "/items",
-            headers={"Content-Type": "application/json"},
-            json={"cartItem": {"sku": sku, "qty": quantity, "quote_id": token}},
-        )
-        denied = _denied("quote", "/rest/V1/guest-carts/[redacted]/items", response, "guest cart item API refused")
-        if denied:
-            return denied
-        if response.status_code not in {200, 201}:
-            raise ToolError(f"Magento rejected SKU {sku!r} with HTTP {response.status_code}")
-        added = json_object(response, "Magento add item")
-        try:
-            added_quantity = Decimal(str(added.get("qty")))
-        except InvalidOperation as error:
-            raise ToolError("Magento add item returned an invalid quantity") from error
-        if added.get("sku") != sku or added_quantity != quantity:
-            raise ToolError("Magento add item did not return the selected SKU and quantity")
-        added_items.append({"sku": sku, "title": added.get("name"), "quantity": quantity})
-    totals_response = http.request("GET", origin + cart_path + "/totals")
-    if totals_response.status_code != 200:
-        raise ToolError(f"Magento guest cart totals returned HTTP {totals_response.status_code}")
-    totals = json_object(totals_response, "Magento guest cart totals")
-    quote_currency = totals.get("quote_currency_code")
-    base_currency = totals.get("base_currency_code")
-    if not isinstance(quote_currency, str) or not isinstance(base_currency, str) or totals.get("subtotal") is None:
-        raise ToolError("Magento guest cart totals omitted subtotal or currency")
-    subtotal = money(totals["subtotal"], quote_currency)
-    rates_response = http.request(
-        "POST", origin + cart_path + "/estimate-shipping-methods",
-        headers={"Content-Type": "application/json"},
-        json={"address": destination_for("magento", destination)},
-    )
-    if rates_response.status_code != 200:
-        raise ToolError(f"Magento shipping estimate returned HTTP {rates_response.status_code}")
-    raw_rates = json_list(rates_response, "Magento shipping estimate")
-    options = [_rate_option(rate, quote_currency, base_currency) for rate in raw_rates]
-    return quote_outcome(
-        MagentoQuote(item={"lines": added_items}, base_subtotal=money(totals["base_subtotal"], base_currency) if totals.get("base_subtotal") is not None else None, subtotal_incl_tax=money(totals["subtotal_incl_tax"], quote_currency) if totals.get("subtotal_incl_tax") is not None else None),
-        options, subtotal,
-        no_quote_reason="empty_rate_list" if not raw_rates else "no_comparable_delivery_rate",
-    )
-
-
-def quote(
-    http: Http, detection: MagentoDetectedStore, reference: object
-) -> dict[str, object]:
-    origin = _magento_origin(detection)
-    selected = parse_item_ref(reference, "magento")
-    if (
-        set(selected) != {"sku"}
-        or not isinstance(selected["sku"], str)
-        or not selected["sku"]
-    ):
-        raise ToolError("Magento item_ref must contain exactly one nonempty simple SKU")
-    sku = selected["sku"]
-    if any(character in sku for character in "\r\n"):
-        raise ToolError("Magento item_ref SKU cannot contain a newline")
 
     create = http.request(
         "POST",
@@ -489,34 +445,39 @@ def quote(
         raise ToolError("Magento guest cart did not return a masked-ID string")
     cart_path = "/rest/V1/guest-carts/" + quote_path(token)
 
-    add = http.request(
-        "POST",
-        origin + cart_path + "/items",
-        headers={"Content-Type": "application/json"},
-        json={"cartItem": {"sku": sku, "qty": 1, "quote_id": token}},
-    )
-    denied = _denied(
-        "quote",
-        "/rest/V1/guest-carts/[redacted]/items",
-        add,
-        "guest cart item API refused",
-    )
-    if denied:
-        return denied
-    if add.status_code not in {200, 201}:
-        raise ToolError(
-            f"Magento rejected selected simple SKU with HTTP {add.status_code}"
+    added_items = []
+    for sku, quantity in selected:
+        add = http.request(
+            "POST",
+            origin + cart_path + "/items",
+            headers={"Content-Type": "application/json"},
+            json={"cartItem": {"sku": sku, "qty": quantity, "quote_id": token}},
         )
-    added = json_object(add, "Magento add item")
-    if added.get("sku") != sku:
-        raise ToolError("Magento add item did not return the selected SKU")
-    added_quantity = added.get("qty")
-    if (
-        isinstance(added_quantity, bool)
-        or not isinstance(added_quantity, (int, float))
-        or Decimal(str(added_quantity)) != 1
-    ):
-        raise ToolError("Magento add item did not return the requested quantity 1")
+        denied = _denied(
+            "quote",
+            "/rest/V1/guest-carts/[redacted]/items",
+            add,
+            "guest cart item API refused",
+        )
+        if denied:
+            return denied
+        if add.status_code not in {200, 201}:
+            raise ToolError(
+                f"Magento rejected SKU {sku!r} with HTTP {add.status_code}"
+            )
+        added = json_object(add, "Magento add item")
+        if added.get("sku") != sku:
+            raise ToolError("Magento add item did not return the selected SKU")
+        added_quantity = added.get("qty")
+        if (
+            isinstance(added_quantity, bool)
+            or not isinstance(added_quantity, (int, float))
+            or Decimal(str(added_quantity)) != quantity
+        ):
+            raise ToolError(
+                f"Magento add item did not return the requested quantity {quantity}"
+            )
+        added_items.append({"sku": sku, "title": added.get("name"), "quantity": quantity})
 
     totals_response = http.request("GET", origin + cart_path + "/totals")
     denied = _denied(
@@ -550,7 +511,7 @@ def quote(
         "POST",
         origin + cart_path + "/estimate-shipping-methods",
         headers={"Content-Type": "application/json"},
-        json={"address": destination_for("magento", DEFAULT_DESTINATION)},
+        json={"address": destination_for("magento", destination)},
     )
     denied = _denied(
         "quote",
@@ -568,7 +529,7 @@ def quote(
     options = [_rate_option(rate, quote_currency, base_currency) for rate in raw_rates]
     return quote_outcome(
         MagentoQuote(
-            item={"sku": sku, "title": added.get("name"), "quantity": added_quantity},
+            item={"lines": added_items},
             base_subtotal=(
                 money(base_subtotal_value, base_currency)
                 if base_subtotal_value is not None
@@ -590,10 +551,6 @@ def quote(
 
 def quote_path(value: str) -> str:
     return url_quote(value, safe="")
-
-
-def _magento_origin(detection: MagentoDetectedStore) -> str:
-    return detection.api_origin
 
 
 def _graphql_detail(
@@ -819,6 +776,7 @@ def _html_search(
     http: Http,
     detection: MagentoDetectedStore,
     query: str,
+    limit: int,
 ) -> dict[str, object]:
     response = http.get(
         http.magento_html_search(detection.origin, detection.entry_url, query)
@@ -882,7 +840,7 @@ def _html_search(
             configurable_products_omitted=omitted,
         ),
         query,
-        _unique_skus(items),
+        _unique_skus(items)[:limit],
     )
 
 

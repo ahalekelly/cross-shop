@@ -113,7 +113,7 @@ def test_magento_quote_many_adds_all_lines_to_one_guest_cart() -> None:
         {"ref": {"platform": "magento", "store": "https://store.test", "sku": "A"}, "quantity": 2},
         {"ref": {"platform": "magento", "store": "https://store.test", "sku": "B"}, "quantity": 4},
     ]
-    result = magento.quote_many(Session(httpx.MockTransport(handler)), detection, lines, DESTINATION)
+    result = magento.Magento().quote(Session(httpx.MockTransport(handler)), detection, lines, DESTINATION)
     assert quantities == [2, 4]
     assert result["kind"] == "quote"
 

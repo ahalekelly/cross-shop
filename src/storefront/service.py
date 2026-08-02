@@ -35,7 +35,6 @@ STOREFRONT_PLATFORMS = (
     "wix", "ecwid", "sfcc",
 )
 LEGACY_MODULES = {
-    "magento": magento,
     "bigcommerce": bigcommerce, "squarespace": squarespace,
     "wix": extra, "ecwid": extra, "sfcc": extra,
 }
@@ -115,12 +114,6 @@ class LegacyAdapter:
                     values = [value for value in values if value.get("sku") == reference.get("sku")]
                 if values:
                     return {"kind": "search", "platform": platform, "items": values}
-        if platform == "magento" and isinstance(reference, dict) and isinstance(reference.get("sku"), str) and isinstance(detection, MagentoDetectedStore) and detection.search_source == "graphql":
-            envelope, errors = magento._graphql_detail(session, detection.api_origin, reference["sku"])
-            if envelope is None:
-                return api_error(platform, "product", str(errors))
-            values, _ = magento._detail_items(envelope, reference["sku"], detection.entry_url)
-            return {"kind": "search", "platform": platform, "items": values}
         return api_error(
             platform,
             "product",
@@ -149,6 +142,7 @@ class Storefront:
         defaults |= {
             "shopify": shopify.Shopify(settings),
             "woocommerce": woocommerce.WooCommerce(),
+            "magento": magento.Magento(),
             "aliexpress": AliExpress(), "google_shopping": SerpApi("google_shopping"),
             "amazon": SerpApi("amazon"), "ebay": Ebay(settings),
             "shopify_global": ShopifyGlobal(settings),

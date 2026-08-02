@@ -25,6 +25,11 @@ MagentoDetectedStore = core.MagentoDetectedStore
 Http = core.Http
 ToolError = core.ToolError
 parse_item_ref = core.parse_item_ref
+DEFAULT_DESTINATION = core.DEFAULT_DESTINATION
+
+
+def adapter():
+    return magento.Magento()
 
 
 def fixture(name: str) -> bytes:
@@ -309,7 +314,7 @@ class MagentoSearchTests(unittest.TestCase):
 
         http = Http(httpx.MockTransport(handler))
         with http.client:
-            result = magento.search(http, detection(), "extension")
+            result = adapter().search(http, detection(), "extension", 20, DEFAULT_DESTINATION)
 
         self.assertEqual([item["sku"] for item in result["items"]], ["CHILD"])
 
@@ -372,7 +377,7 @@ class MagentoSearchTests(unittest.TestCase):
 
         http = Http(httpx.MockTransport(handler))
         with http.client:
-            result = magento.search(http, detection(), "bearing")
+            result = adapter().search(http, detection(), "bearing", 20, DEFAULT_DESTINATION)
 
         self.assertEqual([item["sku"] for item in result["items"]], ["GOOD"])
         self.assertEqual(result["api_errors"][0]["stage"], "detail")
@@ -392,7 +397,7 @@ class MagentoSearchTests(unittest.TestCase):
 
         http = Http(httpx.MockTransport(handler))
         with http.client:
-            result = magento.search(http, detection("html"), "bearing")
+            result = adapter().search(http, detection("html"), "bearing", 20, DEFAULT_DESTINATION)
 
         self.assertEqual(result["source"], "html")
         self.assertEqual(paths, ["/catalogsearch/result"])
@@ -414,7 +419,7 @@ class MagentoSearchTests(unittest.TestCase):
 
         http = Http(httpx.MockTransport(handler))
         with http.client:
-            result = magento.search(http, detection("html"), "bearing")
+            result = adapter().search(http, detection("html"), "bearing", 20, DEFAULT_DESTINATION)
 
         self.assertEqual(result["source"], "html")
         self.assertEqual(paths, ["/catalogsearch/result", "/search/bearing"])
@@ -429,7 +434,7 @@ class MagentoSearchTests(unittest.TestCase):
 
         http = Http(httpx.MockTransport(handler))
         with http.client, self.assertRaisesRegex(ToolError, "same storefront"):
-            magento.search(http, detection("html"), "bearing")
+            adapter().search(http, detection("html"), "bearing", 20, DEFAULT_DESTINATION)
 
     def test_graphql_detail_accepts_null_suffix_and_uses_detected_entry_url(
         self,
@@ -503,7 +508,7 @@ class MagentoSearchTests(unittest.TestCase):
         )
         http = Http(httpx.MockTransport(handler))
         with http.client:
-            result = magento.search(http, custom_detection, "bearing")
+            result = adapter().search(http, custom_detection, "bearing", 20, DEFAULT_DESTINATION)
 
         self.assertEqual(result["items"][0]["url"], "https://magento.test/us/bearing")
 
@@ -630,7 +635,7 @@ class MagentoSearchTests(unittest.TestCase):
 
         http = Http(httpx.MockTransport(handler))
         with http.client:
-            result = magento.search(http, detection(), "bearing")
+            result = adapter().search(http, detection(), "bearing", 20, DEFAULT_DESTINATION)
 
         self.assertEqual(
             [item["sku"] for item in result["items"]], ["BRG-1", "BRG-STEEL"]
@@ -675,7 +680,7 @@ class MagentoSearchTests(unittest.TestCase):
 
         http = Http(httpx.MockTransport(handler))
         with http.client:
-            result = magento.search(http, detection("html"), "bearing")
+            result = adapter().search(http, detection("html"), "bearing", 20, DEFAULT_DESTINATION)
 
         self.assertEqual(result["kind"], "search")
         self.assertEqual(result["source"], "html")
@@ -698,7 +703,7 @@ class MagentoSearchTests(unittest.TestCase):
 
         http = Http(httpx.MockTransport(handler))
         with http.client:
-            result = magento.search(http, detection("html"), "bearing")
+            result = adapter().search(http, detection("html"), "bearing", 20, DEFAULT_DESTINATION)
 
         self.assertEqual(result["status"], "api_error")
         self.assertEqual(result["stage"], "search")
@@ -717,7 +722,7 @@ class MagentoSearchTests(unittest.TestCase):
             http.client,
             self.assertRaisesRegex(ToolError, "Magento HTML search returned HTTP 500"),
         ):
-            magento.search(http, detection("html"), "bearing")
+            adapter().search(http, detection("html"), "bearing", 20, DEFAULT_DESTINATION)
 
         self.assertEqual(paths, ["/catalogsearch/result"])
 
@@ -731,7 +736,7 @@ class MagentoSearchTests(unittest.TestCase):
 
         http = Http(httpx.MockTransport(handler))
         with http.client:
-            result = magento.search(http, detection("html"), "bearing")
+            result = adapter().search(http, detection("html"), "bearing", 20, DEFAULT_DESTINATION)
 
         self.assertEqual(result["status"], "api_error")
         self.assertEqual(result["state"], "bot_wall")
@@ -781,7 +786,9 @@ class MagentoQuoteTests(unittest.TestCase):
         http = Http(httpx.MockTransport(handler))
         reference = magento.item_ref("magento", {"sku": "BRG-STEEL"})
         with http.client:
-            result = magento.quote(http, detection(), reference)
+            result = adapter().quote(
+                http, detection(), [{"ref": reference, "quantity": 1}], DEFAULT_DESTINATION
+            )
 
         self.assertEqual(result["kind"], "quote")
         self.assertEqual(result["subtotal"], {"amount": "3.95", "currency": "USD"})
@@ -830,18 +837,22 @@ class MagentoQuoteTests(unittest.TestCase):
                     http.client,
                     self.assertRaisesRegex(ToolError, "requested quantity"),
                 ):
-                    magento.quote(
+                    adapter().quote(
                         http,
                         detection(),
-                        magento.item_ref("magento", {"sku": "BRG-STEEL"}),
+                        [{"ref": magento.item_ref("magento", {"sku": "BRG-STEEL"}), "quantity": 1}],
+                        DEFAULT_DESTINATION,
                     )
 
     def test_empty_rate_array_is_not_free_shipping(self) -> None:
         handler, _, _ = self.handler(fixture_json("platform-magento-empty.json"))
         http = Http(httpx.MockTransport(handler))
         with http.client:
-            result = magento.quote(
-                http, detection(), magento.item_ref("magento", {"sku": "BRG-STEEL"})
+            result = adapter().quote(
+                http,
+                detection(),
+                [{"ref": magento.item_ref("magento", {"sku": "BRG-STEEL"}), "quantity": 1}],
+                DEFAULT_DESTINATION,
             )
 
         self.assertEqual(result["kind"], "empty")
@@ -854,8 +865,11 @@ class MagentoQuoteTests(unittest.TestCase):
         handler, _, _ = self.handler(rates)
         http = Http(httpx.MockTransport(handler))
         with http.client:
-            result = magento.quote(
-                http, detection(), magento.item_ref("magento", {"sku": "BRG-STEEL"})
+            result = adapter().quote(
+                http,
+                detection(),
+                [{"ref": magento.item_ref("magento", {"sku": "BRG-STEEL"}), "quantity": 1}],
+                DEFAULT_DESTINATION,
             )
 
         self.assertEqual(result["kind"], "empty")
@@ -873,10 +887,11 @@ class MagentoQuoteTests(unittest.TestCase):
                     http.client,
                     self.assertRaisesRegex(ToolError, "available must be a boolean"),
                 ):
-                    magento.quote(
+                    adapter().quote(
                         http,
                         detection(),
-                        magento.item_ref("magento", {"sku": "BRG-STEEL"}),
+                        [{"ref": magento.item_ref("magento", {"sku": "BRG-STEEL"}), "quantity": 1}],
+                        DEFAULT_DESTINATION,
                     )
 
         missing = fixture_json("platform-magento-rates.json")[0]
@@ -887,10 +902,11 @@ class MagentoQuoteTests(unittest.TestCase):
             http.client,
             self.assertRaisesRegex(ToolError, "available must be a boolean"),
         ):
-            magento.quote(
+            adapter().quote(
                 http,
                 detection(),
-                magento.item_ref("magento", {"sku": "BRG-STEEL"}),
+                [{"ref": magento.item_ref("magento", {"sku": "BRG-STEEL"}), "quantity": 1}],
+                DEFAULT_DESTINATION,
             )
 
     def test_explicitly_unavailable_rate_stays_unavailable_without_an_error(
@@ -903,10 +919,11 @@ class MagentoQuoteTests(unittest.TestCase):
         http = Http(httpx.MockTransport(handler))
 
         with http.client:
-            result = magento.quote(
+            result = adapter().quote(
                 http,
                 detection(),
-                magento.item_ref("magento", {"sku": "BRG-STEEL"}),
+                [{"ref": magento.item_ref("magento", {"sku": "BRG-STEEL"}), "quantity": 1}],
+                DEFAULT_DESTINATION,
             )
 
         self.assertEqual(result["kind"], "empty")
@@ -930,10 +947,11 @@ class MagentoQuoteTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 http = Http(httpx.MockTransport(denial(headers, content)))
                 with http.client:
-                    result = magento.quote(
+                    result = adapter().quote(
                         http,
                         detection(),
-                        magento.item_ref("magento", {"sku": "BRG-STEEL"}),
+                        [{"ref": magento.item_ref("magento", {"sku": "BRG-STEEL"}), "quantity": 1}],
+                        DEFAULT_DESTINATION,
                     )
                 self.assertEqual(result["status"], "api_error")
                 if expected == "bot_wall":
@@ -947,10 +965,11 @@ class MagentoQuoteTests(unittest.TestCase):
             http.client,
             self.assertRaisesRegex(ToolError, "exactly one nonempty simple SKU"),
         ):
-            magento.quote(
+            adapter().quote(
                 http,
                 detection(),
-                magento.item_ref("magento", {"sku": "BRG-STEEL", "currency": "USD"}),
+                [{"ref": magento.item_ref("magento", {"sku": "BRG-STEEL", "currency": "USD"}), "quantity": 1}],
+                DEFAULT_DESTINATION,
             )
 
 
