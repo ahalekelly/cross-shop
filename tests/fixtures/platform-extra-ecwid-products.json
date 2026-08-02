@@ -1,0 +1,19 @@
+{
+  "total": 1,
+  "count": 1,
+  "offset": 0,
+  "limit": 10,
+  "items": [
+    {
+      "id": 2913395,
+      "sku": "spb12",
+      "name": "Organic Spoonbender",
+      "url": "https://shop.example/store#!/Organic-Spoonbender-p2913395",
+      "price": 21.0,
+      "compareToPrice": 24.0,
+      "enabled": true,
+      "inStock": true,
+      "options": [{"name": "Grind", "type": "SELECT"}]
+    }
+  ]
+}

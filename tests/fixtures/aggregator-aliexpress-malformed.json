@@ -1,0 +1,30 @@
+{
+  "product": {
+    "product_id": 123456789,
+    "product_title": "M3 brass heat-set inserts",
+    "product_detail_url": "https://aliexpress.example/item/123",
+    "shop_url": "https://aliexpress.example/store/456",
+    "target_sale_price": "11.20",
+    "target_sale_price_currency": "USD",
+    "sale_price": "10.90",
+    "sale_price_currency": "USD",
+    "evaluate_rate": "96.2%",
+    "lastest_volume": 218,
+    "ship_to_days": "ship to US in 7 days",
+    "product_main_image_url": "https://images.example/123.jpg"
+  },
+  "malformed": {
+    "product_id": "123.5",
+    "product_title": [],
+    "product_detail_url": "javascript:alert(1)",
+    "shop_url": "/store/456",
+    "target_sale_price": 11.2,
+    "target_sale_price_currency": "usd",
+    "sale_price": "free",
+    "sale_price_currency": "US",
+    "evaluate_rate": "100.1%",
+    "lastest_volume": -1,
+    "ship_to_days": "",
+    "product_main_image_url": "data:image/png;base64,AAAA"
+  }
+}

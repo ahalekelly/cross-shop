@@ -1,0 +1,9 @@
+{
+  "shippingOptionsStatus":"APPLICABLE_SHIPPING_OPTIONS",
+  "subtotal":{"currencyCode":"USD","decimalValue":"1427.00"},
+  "fulfillmentOptions":[
+    {"key":"standard","name":"Standard Shipping","isPickup":false,"price":{"currencyCode":"USD","decimalValue":"161.13"}},
+    {"key":"oversized","name":"Oversized / Heavy Shipping","isPickup":false,"price":{"currencyCode":"USD","decimalValue":"562.13"}},
+    {"key":"pickup","name":"Brooklyn Pickup","isPickup":true,"price":{"currencyCode":"USD","decimalValue":"0.00"}}
+  ]
+}

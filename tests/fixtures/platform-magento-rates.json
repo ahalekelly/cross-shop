@@ -1,0 +1,50 @@
+[
+  {
+    "carrier_code": "freeshipping",
+    "method_code": "freeshipping",
+    "carrier_title": "Free Shipping",
+    "method_title": "Free Shipping",
+    "amount": 0,
+    "base_amount": 0,
+    "available": true,
+    "error_message": "",
+    "price_excl_tax": 0,
+    "price_incl_tax": 0
+  },
+  {
+    "carrier_code": "instore",
+    "method_code": "pickup",
+    "carrier_title": "Pickup",
+    "method_title": "Store pickup",
+    "amount": 0,
+    "base_amount": 0,
+    "available": true,
+    "error_message": "",
+    "price_excl_tax": 0,
+    "price_incl_tax": 0
+  },
+  {
+    "carrier_code": "freight",
+    "method_code": "deferred",
+    "carrier_title": "Freight",
+    "method_title": "Paid Later",
+    "amount": 0,
+    "base_amount": 0,
+    "available": true,
+    "error_message": "",
+    "price_excl_tax": 0,
+    "price_incl_tax": 0
+  },
+  {
+    "carrier_code": "ups",
+    "method_code": "ground",
+    "carrier_title": "UPS",
+    "method_title": "Ground",
+    "amount": 12,
+    "base_amount": 12,
+    "available": false,
+    "error_message": "carrier failed",
+    "price_excl_tax": 12,
+    "price_incl_tax": 12
+  }
+]

@@ -1,0 +1,60 @@
+{
+  "errors": [
+    {
+      "message": "broken optional resolver",
+      "path": ["products", "items", 0, "extra"]
+    }
+  ],
+  "data": {
+    "storeConfig": {
+      "base_url": "https://magento.test/",
+      "product_url_suffix": ".html",
+      "base_currency_code": "USD"
+    },
+    "products": {
+      "items": [
+        {
+          "__typename": "ConfigurableProduct",
+          "name": "Configurable Bearing",
+          "sku": "BRG-PARENT",
+          "stock_status": "IN_STOCK",
+          "url_key": "configurable-bearing",
+          "price_range": {
+            "minimum_price": {
+              "final_price": {"value": 3.95, "currency": "USD"},
+              "regular_price": {"value": 4.95, "currency": "USD"}
+            }
+          },
+          "variants": [
+            {
+              "attributes": [
+                {"code": "material", "label": "Steel", "value_index": 7}
+              ],
+              "product": {
+                "__typename": "SimpleProduct",
+                "name": "Configurable Bearing - Steel",
+                "sku": "BRG-STEEL",
+                "stock_status": "IN_STOCK",
+                "price_range": {
+                  "minimum_price": {
+                    "final_price": {"value": 3.95, "currency": "USD"},
+                    "regular_price": {"value": 4.95, "currency": "USD"}
+                  }
+                }
+              }
+            },
+            {
+              "attributes": [],
+              "product": {
+                "__typename": "VirtualProduct",
+                "name": "Bearing Plan",
+                "sku": "BRG-VIRTUAL",
+                "stock_status": "IN_STOCK"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+  <head>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "ProductGroup",
+        "name": "Configurable Bearing",
+        "productGroupID": "BRG-PARENT",
+        "hasVariant": [
+          {
+            "@type": "Product",
+            "name": "Configurable Bearing - Steel",
+            "sku": "BRG-STEEL",
+            "offers": {
+              "@type": "Offer",
+              "price": 3.95,
+              "priceCurrency": "USD",
+              "availability": "https://schema.org/InStock"
+            }
+          },
+          {
+            "@type": "Product",
+            "name": "Configurable Bearing - Bronze",
+            "sku": "BRG-BRONZE",
+            "offers": {
+              "@type": "Offer",
+              "price": 4.95,
+              "priceCurrency": "USD",
+              "availability": "https://schema.org/OutOfStock"
+            }
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <form id="product_addtocart_form" data-product-sku="BRG-PARENT">
+      <select name="super_attribute[93]" required>
+        <option value="">Choose an option</option>
+      </select>
+    </form>
+  </body>
+</html>

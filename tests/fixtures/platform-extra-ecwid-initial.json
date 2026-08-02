@@ -1,0 +1,13 @@
+{
+  "storeProfile": {
+    "type": "opened",
+    "value": {
+      "integrations": {
+        "apps": {"publicTokens": {"ecwid-storefront": "public-test-token"}}
+      },
+      "formats": {
+        "currencyFormat": {"currencyCode": "USD", "precision": 2, "roundScale": 100}
+      }
+    }
+  }
+}

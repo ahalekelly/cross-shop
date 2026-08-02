@@ -1,0 +1,9 @@
+{
+  "apps": {
+    "1380b703-ce81-ff05-f115-39571d94dfcd": {
+      "accessToken": "anonymous-wix-test-token",
+      "instance": "test-instance",
+      "intId": 1
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "website": {"id":"5899324686e6c0878c6e61a1"},
+  "collection": {"id":"642500bfa2a5414edbdd8c7f","title":"Chairs and stools","fullUrl":"/chairs-and-stools","type":13},
+  "items": [
+    {
+      "id":"68c79c6651f9b03038220ceb",
+      "title":"KITSUI LOUNGE CHAIR",
+      "fullUrl":"/chairs-and-stools/kitsui-occasional-chair",
+      "variants":[
+        {"sku":"SQ3115437","attributes":{"Color":"Coral"},"onSale":false,"priceMoney":{"currency":"USD","value":"1427.00"},"salePriceMoney":{"currency":"USD","value":"0.00"},"unlimited":true,"qtyInStock":0,"weight":60.0},
+        {"sku":"SQ1796788","attributes":{"Color":"Coffee Bean"},"onSale":false,"priceMoney":{"currency":"USD","value":"1385.00"},"salePriceMoney":{"currency":"USD","value":"0.00"},"unlimited":true,"qtyInStock":0,"weight":60.0}
+      ]
+    }
+  ]
+}

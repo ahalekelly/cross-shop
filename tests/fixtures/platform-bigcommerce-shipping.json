@@ -1,0 +1,12 @@
+{
+  "consignments": [
+    {
+      "availableShippingOptions": [
+        {"id":"delivery","type":"flat","description":"Ground","cost":10,"costAfterDiscount":10,"transitTime":"3-5 days"},
+        {"id":"pickup","type":"pickup","description":"Store Pickup","cost":0,"costAfterDiscount":0,"isPickup":true},
+        {"id":"later","type":"flat","description":"WHOLESALE SHIPPING -- PAID LATER","cost":0,"costAfterDiscount":0},
+        {"id":"unavailable","type":"custom","description":"Call for rate","cost":null,"costAfterDiscount":null}
+      ]
+    }
+  ]
+}

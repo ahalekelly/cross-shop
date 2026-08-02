@@ -1,0 +1,16 @@
+{
+  "metadata": {"items": 1},
+  "totalResults": 1,
+  "products": [
+    {
+      "id": "f255cd0e-93f5-d390-f9d2-b5eb50488a9a",
+      "name": "Jurassic World - Dino Parade",
+      "sku": "WHEEL-DINO",
+      "stock": {"inStock": true, "inventoryStatus": "IN_STOCK"},
+      "priceData": {"currency": "EUR", "price": 189.0, "discountedPrice": 169.0},
+      "productPageUrl": {"base": "https://shop.example/", "path": "/product-page/jurassic-world-dino-parade"},
+      "productOptions": [{"name": "Size (Diameter)", "optionType": "drop_down"}],
+      "customTextFields": [{"title": "Recipient name", "mandatory": true}]
+    }
+  ]
+}

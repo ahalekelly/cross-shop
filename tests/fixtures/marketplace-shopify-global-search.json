@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":1,"result":{"structuredContent":{"products":[{"id":"gid://shopify/p/abc","title":"Boot","description":"Trail boot","price_range":{"min":"40","currency":"USD"},"offers":[{"url":"https://merchant.example/products/boot"}]}]}}}

@@ -1,0 +1,13 @@
+{
+  "newlyAdded": {
+    "itemId":"68c79c6651f9b03038220ceb",
+    "chosenVariant":{"sku":"SQ3115437"},
+    "quantity":1
+  },
+  "shoppingCart": {
+    "cartToken":"cart-token-fixture",
+    "entries":[
+      {"itemId":"68c79c6651f9b03038220ceb","chosenVariant":{"sku":"SQ3115437"},"quantity":1}
+    ]
+  }
+}

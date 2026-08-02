@@ -1,0 +1,29 @@
+{
+  "errors": [
+    {
+      "message": "one search result failed",
+      "path": ["products", "items", 1]
+    }
+  ],
+  "data": {
+    "products": {
+      "total_count": 2,
+      "items": [
+        {
+          "__typename": "SimpleProduct",
+          "name": "Bearing",
+          "sku": "BRG-1",
+          "stock_status": "IN_STOCK",
+          "url_key": "bearing"
+        },
+        {
+          "__typename": "ConfigurableProduct",
+          "name": "Configurable Bearing",
+          "sku": "BRG-PARENT",
+          "stock_status": "IN_STOCK",
+          "url_key": "configurable-bearing"
+        }
+      ]
+    }
+  }
+}

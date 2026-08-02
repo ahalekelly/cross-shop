@@ -1,0 +1,41 @@
+{
+  "shopping_result": {
+    "title": "Precision pliers",
+    "source": "Example Tools",
+    "price": "$29.00",
+    "extracted_price": 29.0,
+    "old_price": "$35.00",
+    "extracted_old_price": 35.0,
+    "delivery": "$4.99 delivery",
+    "second_hand_condition": "new",
+    "rating": 4.8,
+    "reviews": 37,
+    "thumbnail": "https://images.example/product-1.jpg",
+    "product_id": "google-product-1",
+    "product_link": "https://google.example/product/1",
+    "direct_link": "https://retailer.example/product/1"
+  },
+  "inline_result": {
+    "title": "Precision pliers",
+    "source": "Example Tools",
+    "price": "$29.00",
+    "link": "https://retailer.example/product/1"
+  },
+  "malformed": {
+    "title": 42,
+    "source": "",
+    "price": "free",
+    "extracted_price": "29.00",
+    "old_price": {},
+    "extracted_old_price": false,
+    "delivery": [],
+    "second_hand_condition": null,
+    "rating": 5.1,
+    "reviews": 3.5,
+    "thumbnail": "data:image/png;base64,AAAA",
+    "product_id": 123,
+    "product_link": "/shopping/product/1",
+    "direct_link": "https://user:secret@retailer.example/product/1",
+    "link": "javascript:alert(1)"
+  }
+}
