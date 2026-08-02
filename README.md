@@ -15,7 +15,7 @@ uv run storefront config show
 uv run pytest
 ```
 
-The script form is `uv run --project . run.py …`. After installation, use the `storefront` console command. A source checkout can also be run with `uvx --from . storefront …`.
+After installation, use the `storefront` console command. A source checkout runs the same command with `uv run --project <path-to-this-directory> storefront …` or `uvx --from . storefront …`.
 
 ## Commands
 
