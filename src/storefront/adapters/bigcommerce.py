@@ -13,10 +13,10 @@ from storefront.core import (
     BigCommerceQuote,
     BigCommerceSearch,
     BigCommerceShipping,
-    DEFAULT_DESTINATION,
     DetectedStore,
     Http,
     ToolError,
+    api_error,
     bot_wall,
     canonical_url,
     destination_for,
@@ -177,7 +177,40 @@ class ProductParser(HTMLParser):
             self._title_text.append(data)
 
 
-def search(http: Http, detection: DetectedStore, query: str) -> dict[str, object]:
+class BigCommerce:
+    platform = PLATFORM
+
+    def search(self, http: Http, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
+        del destination
+        return _search(http, detection, query, limit)
+
+    def product(self, http: Http, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
+        del detection, destination
+        reference = item.get("ref")
+        url = item.get("url") or (reference.get("product_url") if reference is not None else None)
+        if url is None:
+            return api_error(
+                PLATFORM,
+                "product",
+                "bigcommerce cannot resolve this input to live exact product detail",
+            )
+        response = http.request("GET", url, follow_redirects=True)
+        if response.status_code != 200:
+            return api_error(PLATFORM, "product", "BigCommerce product page failed", response.status_code)
+        detail = _product(response.text, canonical_url(str(response.url)))
+        if reference is not None and detail["item_ref"]["product_id"] != reference.get("product_id"):
+            return api_error(
+                PLATFORM,
+                "product",
+                "BigCommerce product page identity no longer matches the ref",
+            )
+        return detail
+
+    def quote(self, http: Http, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
+        return _quote(http, detection, lines, destination)
+
+
+def _search(http: Http, detection: DetectedStore, query: str, limit: int) -> dict[str, object]:
     response = http.get(http.bigcommerce_search(detection.origin, query))
     terminal = _terminal(
         "search", "/search.php", response, "public HTML search refused"
@@ -224,134 +257,63 @@ def search(http: Http, detection: DetectedStore, query: str) -> dict[str, object
                 "BigCommerce product page redirected off the detected storefront"
             )
         items.append(_product(page.text, final_url))
-    return search_result(BigCommerceSearch(), query, items)
+    return search_result(BigCommerceSearch(), query, items[:limit])
 
 
-def quote_many(
+def _quote(
     http: Http,
     detection: DetectedStore,
     lines: list[dict[str, Any]],
     destination: dict[str, str],
 ) -> dict[str, object]:
+    http.client.cookies.clear()
     selected = []
     for line in lines:
         reference = parse_item_ref(line["ref"], PLATFORM)
-        product_id = reference.get("product_id")
-        product_url = reference.get("product_url")
-        if type(product_id) is not int or product_id <= 0 or not isinstance(product_url, str):
-            raise ToolError("BigCommerce ref has an invalid product identity")
-        if canonical_url(product_url) != product_url or url_origin(product_url) != detection.origin:
-            raise ToolError("BigCommerce ref product URL must be canonical and on the storefront")
+        if set(reference) != {"product_id", "product_url"}:
+            raise ToolError("BigCommerce item_ref has unexpected fields")
+        product_id = reference["product_id"]
+        product_url = reference["product_url"]
+        if (
+            type(product_id) is not int
+            or product_id <= 0
+            or not isinstance(product_url, str)
+        ):
+            raise ToolError("BigCommerce item_ref has invalid product identity")
+        if (
+            canonical_url(product_url) != product_url
+            or url_origin(product_url) != detection.origin
+        ):
+            raise ToolError(
+                "BigCommerce item_ref product URL must be canonical and on the detected storefront"
+            )
         page = http.request("GET", product_url, follow_redirects=True)
-        if page.status_code != 200 or canonical_url(str(page.url)) != product_url:
-            raise ToolError("BigCommerce ref product page no longer resolves")
+        terminal = _terminal("quote", product_url, page, "public product page refused")
+        if terminal:
+            return terminal
+        if page.status_code != 200:
+            raise ToolError(f"BigCommerce product page returned HTTP {page.status_code}")
+        if canonical_url(str(page.url)) != product_url:
+            raise ToolError(
+                "BigCommerce item_ref product URL no longer resolves to the selected product"
+            )
         product = _parse_product(page.text)
         if product.product_id != product_id:
-            raise ToolError("BigCommerce ref product ID does not match its product URL")
+            raise ToolError(
+                "BigCommerce item_ref product ID does not match its product URL"
+            )
         if product.configuration_fields:
             return unsupported_configuration(
                 PLATFORM,
                 list(product.configuration_fields),
                 "buyer choices are required and are never guessed",
             )
-        if product.attributes.get("instock") is not True or product.attributes.get("purchasable") is not True:
+        if (
+            product.attributes.get("instock") is not True
+            or product.attributes.get("purchasable") is not True
+        ):
             raise ToolError("BigCommerce selected product is not currently purchasable")
         selected.append((product_id, line["quantity"]))
-    http.client.cookies.clear()
-    created = http.request(
-        "POST", detection.origin + "/api/storefront/carts",
-        json={"lineItems": [{"quantity": quantity, "productId": product_id, "optionSelections": []} for product_id, quantity in selected]},
-    )
-    terminal = _terminal("quote", "/api/storefront/carts", created, "anonymous Storefront cart API refused")
-    if terminal:
-        return terminal
-    if created.status_code != 200:
-        raise ToolError(f"BigCommerce Storefront cart creation returned HTTP {created.status_code}")
-    cart = json_object(created, "BigCommerce Storefront cart")
-    cart_id = cart.get("id")
-    currency = cart.get("currency")
-    currency_code = currency.get("code") if isinstance(currency, dict) else None
-    line_items = cart.get("lineItems")
-    physical = line_items.get("physicalItems") if isinstance(line_items, dict) else None
-    if not isinstance(cart_id, str) or not isinstance(currency_code, str) or not isinstance(physical, list):
-        raise ToolError("BigCommerce cart omitted identity, currency, or physical items")
-    consign_items = []
-    for product_id, quantity in selected:
-        matches = [value for value in physical if isinstance(value, dict) and value.get("productId") == product_id]
-        if len(matches) != 1 or not isinstance(matches[0].get("id"), str):
-            raise ToolError("BigCommerce cart did not contain each selected product exactly once")
-        consign_items.append({"itemId": matches[0]["id"], "quantity": quantity})
-    response = http.request(
-        "POST", detection.origin + f"/api/storefront/checkouts/{url_quote(cart_id, safe='')}/consignments",
-        params={"include": "consignments.availableShippingOptions"},
-        headers={"Cookie": f"SHOP_SESSION_TOKEN={_cookie(http, 'SHOP_SESSION_TOKEN')}", "X-SF-CSRF-TOKEN": _cookie(http, "SF-CSRF-TOKEN")},
-        json=[{"address": destination_for(PLATFORM, destination), "lineItems": consign_items}],
-    )
-    terminal = _terminal("quote", "/api/storefront/checkouts/[redacted]/consignments", response, "anonymous Storefront consignment API refused")
-    if terminal:
-        return terminal
-    if response.status_code != 200:
-        raise ToolError(f"BigCommerce Storefront consignment returned HTTP {response.status_code}")
-    checkout = json_object(response, "BigCommerce shipping quote")
-    consignments = checkout.get("consignments")
-    if not isinstance(consignments, list):
-        raise ToolError("BigCommerce checkout omitted consignments")
-    options = []
-    for consignment in consignments:
-        raw = consignment.get("availableShippingOptions") if isinstance(consignment, dict) else None
-        if not isinstance(raw, list):
-            raise ToolError("BigCommerce consignment omitted shipping options")
-        options.extend(_shipping_option(value, currency_code) for value in raw)
-    return quote_outcome(BigCommerceQuote(selected_sku=None), options, money(cart.get("baseAmount"), currency_code))
-
-
-def quote(http: Http, detection: DetectedStore, reference: object) -> dict[str, object]:
-    selected = parse_item_ref(reference, PLATFORM)
-    if set(selected) != {"product_id", "product_url"}:
-        raise ToolError("BigCommerce item_ref has unexpected fields")
-    product_id = selected["product_id"]
-    product_url = selected["product_url"]
-    if (
-        type(product_id) is not int
-        or product_id <= 0
-        or not isinstance(product_url, str)
-    ):
-        raise ToolError("BigCommerce item_ref has invalid product identity")
-    if (
-        canonical_url(product_url) != product_url
-        or url_origin(product_url) != detection.origin
-    ):
-        raise ToolError(
-            "BigCommerce item_ref product URL must be canonical and on the detected storefront"
-        )
-
-    http.client.cookies.clear()
-    page = http.request("GET", product_url, follow_redirects=True)
-    terminal = _terminal("quote", product_url, page, "public product page refused")
-    if terminal:
-        return terminal
-    if page.status_code != 200:
-        raise ToolError(f"BigCommerce product page returned HTTP {page.status_code}")
-    if canonical_url(str(page.url)) != product_url:
-        raise ToolError(
-            "BigCommerce item_ref product URL no longer resolves to the selected product"
-        )
-    product = _parse_product(page.text)
-    if product.product_id != product_id:
-        raise ToolError(
-            "BigCommerce item_ref product ID does not match its product URL"
-        )
-    if product.configuration_fields:
-        return unsupported_configuration(
-            PLATFORM,
-            list(product.configuration_fields),
-            "buyer choices are required and are never guessed",
-        )
-    if (
-        product.attributes.get("instock") is not True
-        or product.attributes.get("purchasable") is not True
-    ):
-        raise ToolError("BigCommerce selected product is not currently purchasable")
 
     http.client.cookies.clear()
     created = http.request(
@@ -359,7 +321,8 @@ def quote(http: Http, detection: DetectedStore, reference: object) -> dict[str, 
         detection.origin + "/api/storefront/carts",
         json={
             "lineItems": [
-                {"quantity": 1, "productId": product_id, "optionSelections": []}
+                {"quantity": quantity, "productId": product_id, "optionSelections": []}
+                for product_id, quantity in selected
             ]
         },
     )
@@ -389,38 +352,40 @@ def quote(http: Http, detection: DetectedStore, reference: object) -> dict[str, 
     physical = line_items.get("physicalItems") if isinstance(line_items, dict) else None
     if not isinstance(physical, list):
         raise ToolError("BigCommerce Storefront cart omitted its physical item array")
-    matches = [
-        item
-        for item in physical
-        if isinstance(item, dict)
-        and type(item.get("productId")) is int
-        and item["productId"] == product_id
-    ]
-    if len(matches) != 1:
-        raise ToolError(
-            "BigCommerce Storefront cart did not contain exactly the selected product"
-        )
-    cart_item = matches[0]
-    item_id = cart_item.get("id")
-    if (
-        not isinstance(item_id, str)
-        or not item_id
-        or cart_item.get("isShippingRequired") is not True
-    ):
-        raise ToolError(
-            "BigCommerce selected cart item is not a physical shippable item"
-        )
-    session = _cookie(http, "SHOP_SESSION_TOKEN")
-    csrf = _cookie(http, "SF-CSRF-TOKEN")
-    subtotal = money(cart.get("baseAmount"), currency_code)
+    consign_items = []
+    for product_id, quantity in selected:
+        matches = [
+            item
+            for item in physical
+            if isinstance(item, dict)
+            and type(item.get("productId")) is int
+            and item["productId"] == product_id
+        ]
+        if len(matches) != 1:
+            raise ToolError(
+                "BigCommerce Storefront cart did not contain exactly the selected products"
+            )
+        item_id = matches[0].get("id")
+        if (
+            not isinstance(item_id, str)
+            or not item_id
+            or matches[0].get("isShippingRequired") is not True
+        ):
+            raise ToolError(
+                "BigCommerce selected cart item is not a physical shippable item"
+            )
+        consign_items.append({"itemId": item_id, "quantity": quantity})
 
     consignment = http.request(
         "POST",
         detection.origin
         + f"/api/storefront/checkouts/{url_quote(cart_id, safe='')}/consignments",
         params={"include": "consignments.availableShippingOptions"},
-        headers={"Cookie": f"SHOP_SESSION_TOKEN={session}", "X-SF-CSRF-TOKEN": csrf},
-        json=[{"address": destination_for(PLATFORM, DEFAULT_DESTINATION), "lineItems": [{"itemId": item_id, "quantity": 1}]}],
+        headers={
+            "Cookie": f"SHOP_SESSION_TOKEN={_cookie(http, 'SHOP_SESSION_TOKEN')}",
+            "X-SF-CSRF-TOKEN": _cookie(http, "SF-CSRF-TOKEN"),
+        },
+        json=[{"address": destination_for(PLATFORM, destination), "lineItems": consign_items}],
     )
     terminal = _terminal(
         "quote",
@@ -438,20 +403,14 @@ def quote(http: Http, detection: DetectedStore, reference: object) -> dict[str, 
     consignments = checkout.get("consignments")
     if not isinstance(consignments, list):
         raise ToolError("BigCommerce checkout omitted its consignment array")
-    raw_options: list[Any] = []
+    options = []
     for value in consignments:
-        options = (
-            value.get("availableShippingOptions") if isinstance(value, dict) else None
-        )
-        if not isinstance(options, list):
+        raw = value.get("availableShippingOptions") if isinstance(value, dict) else None
+        if not isinstance(raw, list):
             raise ToolError("BigCommerce consignment omitted availableShippingOptions")
-        raw_options.extend(options)
-    options = [_shipping_option(value, currency_code) for value in raw_options]
+        options.extend(_shipping_option(item, currency_code) for item in raw)
     return quote_outcome(
-        BigCommerceQuote(selected_sku=cart_item.get("sku")),
-        options,
-        subtotal,
-        no_quote_reason="empty_rate_list",
+        BigCommerceQuote(), options, money(cart.get("baseAmount"), currency_code)
     )
 
 

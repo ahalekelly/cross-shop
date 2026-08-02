@@ -486,9 +486,7 @@ class MagentoQuote:
     item: dict[str, Any]; base_subtotal: dict[str, str] | None; subtotal_incl_tax: dict[str, str] | None
     platform: str = field(init=False, default="magento")
 @dataclass(frozen=True, kw_only=True)
-class BigCommerceQuote:
-    selected_sku: str | None
-    platform: str = field(init=False, default="bigcommerce")
+class BigCommerceQuote: platform: str = field(init=False, default="bigcommerce")
 @dataclass(frozen=True, kw_only=True)
 class SquarespaceQuote:
     shipping_options_status: str

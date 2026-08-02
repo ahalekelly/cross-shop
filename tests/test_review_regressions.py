@@ -134,7 +134,7 @@ def test_bigcommerce_ref_rejects_a_page_for_another_product() -> None:
         api_origin="https://store.test",
         evidence=("test",),
     )
-    result = LegacyAdapter(bigcommerce).product(
+    result = bigcommerce.BigCommerce().product(
         Session(httpx.MockTransport(handler)),
         detection,
         {

@@ -52,6 +52,10 @@ def response(
     return httpx.Response(status, content=content, headers=headers, request=request)
 
 
+def adapter() -> bigcommerce.BigCommerce:
+    return bigcommerce.BigCommerce()
+
+
 def detection() -> DetectedStore:
     return DetectedStore(
         origin="https://bigcommerce.test",
@@ -124,7 +128,7 @@ class BigCommerceTests(unittest.TestCase):
 
         http = Http(httpx.MockTransport(handler))
         with http.client:
-            result = bigcommerce.search(http, detection(), "bearing")
+            result = adapter().search(http, detection(), "bearing", 20, DEFAULT_DESTINATION)
 
         self.assertEqual(len(result["items"]), 1)
         self.assertEqual(product_calls, ["https://bigcommerce.test/precision-bearing/"])
@@ -156,8 +160,8 @@ class BigCommerceTests(unittest.TestCase):
                 headers={"Content-Type": "text/html"},
             )
 
-        result = bigcommerce.search(
-            Http(httpx.MockTransport(handler)), detection(), "bearing"
+        result = adapter().search(
+            Http(httpx.MockTransport(handler)), detection(), "bearing", 20, DEFAULT_DESTINATION
         )
 
         self.assertEqual(len(result["items"]), 1)
@@ -195,7 +199,7 @@ class BigCommerceTests(unittest.TestCase):
 
         http = Http(httpx.MockTransport(handler))
         with http.client:
-            result = bigcommerce.search(http, detection(), "BRG-1")
+            result = adapter().search(http, detection(), "BRG-1", 20, DEFAULT_DESTINATION)
 
         self.assertEqual(result["kind"], "search")
         self.assertEqual(len(result["items"]), 3)
@@ -254,7 +258,7 @@ class BigCommerceTests(unittest.TestCase):
 
         http = Http(httpx.MockTransport(handler))
         with http.client:
-            result = bigcommerce.search(http, detection(), "bearing")
+            result = adapter().search(http, detection(), "bearing", 20, DEFAULT_DESTINATION)
 
         self.assertEqual(len(result["items"]), 2)
         quote_only = result["items"][0]
@@ -360,7 +364,7 @@ class BigCommerceTests(unittest.TestCase):
             },
         )
         with http.client:
-            result = bigcommerce.quote(http, detection(), reference)
+            result = adapter().quote(http, detection(), [{"ref": reference, "quantity": 1}], DEFAULT_DESTINATION)
 
         self.assertEqual(result["kind"], "quote")
         self.assertEqual(result["subtotal"], {"amount": "12.5", "currency": "USD"})
@@ -418,7 +422,7 @@ class BigCommerceTests(unittest.TestCase):
         )
         http = Http(httpx.MockTransport(handler))
         with http.client, self.assertRaisesRegex(ToolError, "exactly the selected"):
-            bigcommerce.quote(http, detection(), reference)
+            adapter().quote(http, detection(), [{"ref": reference, "quantity": 1}], DEFAULT_DESTINATION)
 
     def test_configuration_and_stale_identity_fail_before_cart(self) -> None:
         def configurable(request: httpx.Request) -> httpx.Response:
@@ -436,7 +440,7 @@ class BigCommerceTests(unittest.TestCase):
             {"product_id": 124, "product_url": "https://bigcommerce.test/configured/"},
         )
         with http.client:
-            result = bigcommerce.quote(http, detection(), reference)
+            result = adapter().quote(http, detection(), [{"ref": reference, "quantity": 1}], DEFAULT_DESTINATION)
         self.assertEqual(result["status"], "api_error")
         self.assertEqual(result["fields"], ["attribute[7]"])
 
@@ -446,7 +450,7 @@ class BigCommerceTests(unittest.TestCase):
             {"product_id": 125, "product_url": "https://bigcommerce.test/configured/"},
         )
         with http.client, self.assertRaisesRegex(ToolError, "does not match"):
-            bigcommerce.quote(http, detection(), stale)
+            adapter().quote(http, detection(), [{"ref": stale, "quantity": 1}], DEFAULT_DESTINATION)
 
     def test_item_ref_rejects_tracking_query(self) -> None:
         http = Http(
@@ -460,7 +464,7 @@ class BigCommerceTests(unittest.TestCase):
             },
         )
         with http.client, self.assertRaisesRegex(ToolError, "canonical"):
-            bigcommerce.quote(http, detection(), reference)
+            adapter().quote(http, detection(), [{"ref": reference, "quantity": 1}], DEFAULT_DESTINATION)
 
 
 if __name__ == "__main__":

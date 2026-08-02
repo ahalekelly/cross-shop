@@ -35,7 +35,7 @@ STOREFRONT_PLATFORMS = (
     "wix", "ecwid", "sfcc",
 )
 LEGACY_MODULES = {
-    "bigcommerce": bigcommerce, "squarespace": squarespace,
+    "squarespace": squarespace,
     "wix": extra, "ecwid": extra, "sfcc": extra,
 }
 PASSIVE_DETECTORS = (bigcommerce.detect, squarespace.detect, extra.detect)
@@ -86,23 +86,6 @@ class LegacyAdapter:
             or (reference.get("product_url") if isinstance(reference, dict) else None)
             or (cached.get("url") if isinstance(cached, dict) else None)
         )
-        if platform == "bigcommerce" and isinstance(url, str):
-            response = session.request("GET", url, follow_redirects=True)
-            if response.status_code != 200:
-                return api_error(platform, "product", "BigCommerce product page failed", response.status_code)
-            detail = bigcommerce._product(
-                response.text, canonical_url(str(response.url))
-            )
-            if (
-                isinstance(reference, dict)
-                and detail["item_ref"]["product_id"] != reference.get("product_id")
-            ):
-                return api_error(
-                    platform,
-                    "product",
-                    "BigCommerce product page identity no longer matches the ref",
-                )
-            return detail
         if platform == "squarespace":
             collection = reference.get("collection_url") if isinstance(reference, dict) else url
             if isinstance(collection, str):
@@ -143,6 +126,7 @@ class Storefront:
             "shopify": shopify.Shopify(settings),
             "woocommerce": woocommerce.WooCommerce(),
             "magento": magento.Magento(),
+            "bigcommerce": bigcommerce.BigCommerce(),
             "aliexpress": AliExpress(), "google_shopping": SerpApi("google_shopping"),
             "amazon": SerpApi("amazon"), "ebay": Ebay(settings),
             "shopify_global": ShopifyGlobal(settings),

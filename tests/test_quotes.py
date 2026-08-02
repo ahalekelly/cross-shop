@@ -132,14 +132,14 @@ def test_bigcommerce_quote_many_sends_all_line_items() -> None:
             return httpx.Response(200, text=html, request=request)
         if request.url.path == "/api/storefront/carts":
             cart_body = json.loads(request.content)
-            return httpx.Response(200, headers=[("set-cookie", "SHOP_SESSION_TOKEN=session; Path=/"), ("set-cookie", "SF-CSRF-TOKEN=csrf; Path=/")], json={"id": "cart", "baseAmount": 30, "currency": {"code": "USD"}, "lineItems": {"physicalItems": [{"id": "line1", "productId": 1}, {"id": "line2", "productId": 2}]}}, request=request)
+            return httpx.Response(200, headers=[("set-cookie", "SHOP_SESSION_TOKEN=session; Path=/"), ("set-cookie", "SF-CSRF-TOKEN=csrf; Path=/")], json={"id": "cart", "baseAmount": 30, "currency": {"code": "USD"}, "lineItems": {"physicalItems": [{"id": "line1", "productId": 1, "isShippingRequired": True}, {"id": "line2", "productId": 2, "isShippingRequired": True}]}}, request=request)
         return httpx.Response(200, json={"consignments": [{"availableShippingOptions": [{"id": "ground", "description": "Ground", "cost": 5}]}]}, request=request)
 
     lines = [
         {"ref": {"platform": "bigcommerce", "store": "https://store.test", "product_id": 1, "product_url": "https://store.test/a"}, "quantity": 2},
         {"ref": {"platform": "bigcommerce", "store": "https://store.test", "product_id": 2, "product_url": "https://store.test/b"}, "quantity": 1},
     ]
-    result = bigcommerce.quote_many(Session(httpx.MockTransport(handler)), detected("bigcommerce"), lines, DESTINATION)
+    result = bigcommerce.BigCommerce().quote(Session(httpx.MockTransport(handler)), detected("bigcommerce"), lines, DESTINATION)
     assert [item["quantity"] for item in cart_body["lineItems"]] == [2, 1]
     assert result["kind"] == "quote"
 
