@@ -17,6 +17,7 @@ class FakeAdapter:
     def __init__(self) -> None:
         self.searches: list[str] = []
         self.quotes: list[list[dict[str, object]]] = []
+        self.destinations: list[dict[str, str]] = []
 
     def search(self, session, detection, query, limit, destination):
         del session, detection, limit, destination
@@ -53,8 +54,9 @@ class FakeAdapter:
         return self.search(None, None, "detail", 20, {})
 
     def quote(self, session, detection, lines, destination):
-        del session, detection, destination
+        del session, detection
         self.quotes.append(lines)
+        self.destinations.append(destination)
         return {
             "kind": "quote",
             "platform": "shopify",
@@ -174,15 +176,44 @@ def test_debug_restores_detection_evidence(data: DataStore) -> None:
 
 
 def test_registry_hit_skips_live_detection(data: DataStore) -> None:
-    called = False
+    requests = 0
 
-    def transport(origin):
-        nonlocal called
-        called = True
-        return None
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        raise AssertionError(request.url)
 
-    tool(data, FakeAdapter(), transport).search([{"store": "https://one.test", "query": "valve"}])
-    assert called is True  # session creation is allowed; no request reached its transport
+    tool(data, FakeAdapter(), lambda origin: httpx.MockTransport(handler)).search(
+        [{"store": "https://one.test", "query": "valve"}]
+    )
+    assert requests == 0
+
+
+def test_redetect_overwrites_a_contradicting_registry_entry(data: DataStore) -> None:
+    class BigCommerceAdapter:
+        def search(self, session, detection, query, limit, destination):
+            del session, detection, query, limit, destination
+            return {
+                "kind": "search",
+                "platform": "bigcommerce",
+                "items": [{
+                    "name": "Valve",
+                    "product_url": "https://one.test/valve",
+                    "item_ref": item_ref("bigcommerce", {"product_id": 1, "product_url": "https://one.test/valve"}),
+                }],
+            }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text='<script src="/stencil/app.js"></script>', request=request)
+
+    result = Storefront(
+        data,
+        lambda origin: httpx.MockTransport(handler),
+        {"bigcommerce": BigCommerceAdapter()},
+    ).search([{"store": "https://one.test", "query": "valve"}], redetect=True)
+
+    assert result["stores"][0]["detection"]["platform"] == "bigcommerce"
+    assert data.vendor("https://one.test")["platform"] == "bigcommerce"
 
 
 def test_one_store_error_does_not_remove_other_store(tmp_path: Path) -> None:
@@ -203,6 +234,19 @@ def test_run_counter_is_monotonic_under_concurrent_allocation(tmp_path: Path) ->
     with ThreadPoolExecutor(max_workers=10) as pool:
         ids = list(pool.map(lambda store: store.save_run({"stores": []}), stores))
     assert sorted(int(value[1:]) for value in ids) == list(range(1, 11))
+
+
+def test_run_counter_survives_garbage_collection(tmp_path: Path) -> None:
+    data = DataStore(tmp_path)
+    first = data.save_run({"stores": []})
+    path = data.runs / f"{first}.json"
+    value = json.loads(path.read_text())
+    value["created_at"] = (datetime.now(UTC) - timedelta(days=8)).isoformat()
+    path.write_text(json.dumps(value))
+
+    data.gc_runs()
+
+    assert data.save_run({"stores": []}) == "r2"
 
 
 def test_garbage_collected_handle_never_resolves(tmp_path: Path) -> None:
@@ -228,6 +272,22 @@ def test_images_uses_cached_urls_and_range(tmp_path: Path) -> None:
     assert len(result) == 1
     assert result[0].endswith("/2.png")
     assert Path(result[0]).read_bytes() == b"image"
+
+
+def test_quote_destination_precedence(data: DataStore) -> None:
+    adapter = FakeAdapter()
+    data.set_destination({"country": "CA", "postal_code": "M5V 3L9"})
+    storefront = tool(data, adapter)
+    ref = {"platform": "shopify", "store": "https://one.test", "variant_id": "gid://shopify/ProductVariant/1"}
+    quote = [{"store": "https://one.test", "lines": [{"item": ref, "quantity": 1}]}]
+
+    storefront.quote(quote)
+    storefront.quote(quote, destination={"country": "GB", "postal_code": "SW1A 1AA"})
+
+    assert adapter.destinations == [
+        {"country": "CA", "postal_code": "M5V 3L9"},
+        {"country": "GB", "postal_code": "SW1A 1AA"},
+    ]
 
 
 def test_refs_are_strict_and_canonically_equal() -> None:
