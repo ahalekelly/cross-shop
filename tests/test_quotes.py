@@ -57,7 +57,7 @@ def test_shopify_quote_many_uses_one_cart_with_all_quantities() -> None:
         {"ref": {"platform": "shopify", "store": "https://store.test", "variant_id": "gid://shopify/ProductVariant/1"}, "quantity": 2},
         {"ref": {"platform": "shopify", "store": "https://store.test", "variant_id": "gid://shopify/ProductVariant/2"}, "quantity": 3},
     ]
-    result = shopify.quote_many(Session(httpx.MockTransport(handler)), detected("shopify"), lines, DESTINATION)
+    result = shopify.Shopify({}).quote(Session(httpx.MockTransport(handler)), detected("shopify"), lines, DESTINATION)
     assert [line["quantity"] for line in bodies[0]["variables"]["input"]["lines"]] == [2, 3]
     assert bodies[0]["variables"]["input"]["buyerIdentity"]["deliveryAddressPreferences"][0]["deliveryAddress"]["zip"] == "94103"
     assert result["kind"] == "quote"

@@ -15,6 +15,7 @@ from storefront.core import (
     ShopifySearch,
     ShopifyShipping,
     ToolError,
+    api_error,
     bot_wall,
     destination_for,
     gated,
@@ -22,12 +23,14 @@ from storefront.core import (
     json_object,
     minor_money,
     money,
+    parse_item_ref,
     quote_outcome,
     search_result,
     shipping_option,
     url_origin,
     wall_system,
 )
+from storefront.web_bot_auth import build_signer
 
 API_PATH = "/api/2026-07/graphql.json"
 PRODUCT_QUERY = """
@@ -154,108 +157,192 @@ def detect(
     return None
 
 
-def search(http: Http, detection: DetectedStore, query: str) -> dict[str, object]:
-    response = _graphql(http, detection, PRODUCT_QUERY, {"query": query})
-    terminal = _terminal_response("search", response)
-    if terminal is not None:
-        return terminal
-    payload = json_object(response, "Shopify product search")
-    data = _graphql_data(payload, "Shopify product search")
-    products = data.get("products")
-    if not isinstance(products, dict) or not isinstance(products.get("nodes"), list):
-        raise ToolError("Shopify product search response has no product nodes")
+class Shopify:
+    platform = "shopify"
 
-    items: list[dict[str, Any]] = []
-    for product in products["nodes"]:
-        if not isinstance(product, dict):
-            raise ToolError("Shopify product node must be an object")
-        variants = product.get("variants")
-        if not isinstance(variants, dict) or not isinstance(
-            variants.get("nodes"), list
-        ):
-            raise ToolError("Shopify product has no variant nodes")
-        for variant in variants["nodes"]:
-            items.append(_product_item(detection, product, variant))
-    return search_result(ShopifySearch(), query, items)
+    def __init__(self, settings: dict[str, Any]) -> None:
+        self.web_bot_auth = settings.get("web_bot_auth")
 
-
-def product_detail(
-    http: Http, detection: DetectedStore, reference: object
-) -> dict[str, object]:
-    from storefront.core import parse_item_ref
-
-    selected = parse_item_ref(reference, "shopify")
-    variant_id = selected.get("variant_id")
-    if not isinstance(variant_id, str):
-        raise ToolError("Shopify ref has no variant ID")
-    response = _graphql(http, detection, PRODUCT_DETAIL_QUERY, {"id": variant_id})
-    terminal = _terminal_response("product", response)
-    if terminal is not None:
-        return terminal
-    data = _graphql_data(json_object(response, "Shopify product detail"), "Shopify product detail")
-    node = data.get("node")
-    product = node.get("product") if isinstance(node, dict) else None
-    variants = product.get("variants") if isinstance(product, dict) else None
-    nodes = variants.get("nodes") if isinstance(variants, dict) else None
-    if not isinstance(product, dict) or not isinstance(nodes, list):
-        raise ToolError("Shopify ref no longer resolves to a product variant")
-    return search_result(
-        ShopifySearch(),
-        variant_id,
-        [_product_item(detection, product, value) for value in nodes],
-    )
-
-
-def product_url_detail(
-    http: Http, detection: DetectedStore, product_url: str
-) -> dict[str, object]:
-    parts = urlsplit(product_url)
-    match = re.fullmatch(r"/products/([^/]+)", parts.path.rstrip("/"))
-    if (
-        detection.platform != "shopify"
-        or url_origin(product_url) != detection.origin
-        or match is None
-    ):
-        return api_error(
-            "shopify", "product", "Shopify product URL must be /products/<handle>"
-        )
-    handle = match.group(1)
-    response = http.request("GET", f"{detection.origin}/products/{handle}.js")
-    terminal = _terminal_response("product", response)
-    if terminal is not None:
-        return terminal
-    payload = json_object(response, "Shopify Ajax product detail")
-    if payload.get("handle") != handle:
-        return api_error(
-            "shopify", "product", "Shopify product endpoint returned another handle"
-        )
-    currency = payload.get("currency")
-    if currency is None:
-        cart = http.request("GET", detection.origin + "/cart.js")
-        terminal = _terminal_response("product", cart)
+    def search(self, http: Http, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
+        del destination
+        self._sign(http)
+        response = _graphql(http, detection, PRODUCT_QUERY, {"query": query})
+        terminal = _terminal_response("search", response)
         if terminal is not None:
             return terminal
-        currency = json_object(cart, "Shopify Ajax cart").get("currency")
-    if not isinstance(currency, str) or not currency:
-        raise ToolError("Shopify Ajax product detail omitted storefront currency")
-    title = payload.get("title")
-    variants = payload.get("variants")
-    images = payload.get("images", [])
-    options = payload.get("options", [])
-    if (
-        not isinstance(title, str)
-        or not isinstance(variants, list)
-        or not isinstance(images, list)
-        or not isinstance(options, list)
-    ):
-        raise ToolError("Shopify Ajax product detail has an invalid product shape")
-    items = [
-        _ajax_product_item(
-            detection, payload, variant, options, images, currency, product_url
+        payload = json_object(response, "Shopify product search")
+        data = _graphql_data(payload, "Shopify product search")
+        products = data.get("products")
+        if not isinstance(products, dict) or not isinstance(products.get("nodes"), list):
+            raise ToolError("Shopify product search response has no product nodes")
+
+        items: list[dict[str, Any]] = []
+        for product in products["nodes"]:
+            if not isinstance(product, dict):
+                raise ToolError("Shopify product node must be an object")
+            variants = product.get("variants")
+            if not isinstance(variants, dict) or not isinstance(
+                variants.get("nodes"), list
+            ):
+                raise ToolError("Shopify product has no variant nodes")
+            for variant in variants["nodes"]:
+                items.append(_product_item(detection, product, variant))
+        return search_result(ShopifySearch(), query, items[:limit])
+
+    def product(self, http: Http, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
+        del destination
+        self._sign(http)
+        reference = item.get("ref")
+        if reference is not None:
+            return self._variant_detail(http, detection, reference)
+        url = item.get("url")
+        if url is not None:
+            return self._url_detail(http, detection, url)
+        return api_error(
+            self.platform,
+            "product",
+            "shopify cannot resolve this input to live exact product detail",
         )
-        for variant in variants
-    ]
-    return search_result(ShopifySearch(), handle, items)
+
+    def quote(self, http: Http, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
+        self._sign(http)
+        cart_lines = []
+        for line in lines:
+            selected = parse_item_ref(line["ref"], "shopify")
+            variant_id = selected.get("variant_id")
+            if not isinstance(variant_id, str) or not variant_id.startswith(
+                "gid://shopify/ProductVariant/"
+            ):
+                raise ToolError("Shopify ref has no valid variant ID")
+            cart_lines.append(
+                {"merchandiseId": variant_id, "quantity": line["quantity"]}
+            )
+        address = destination_for("shopify", destination)
+        create_response = _graphql(
+            http,
+            detection,
+            CART_CREATE_MUTATION,
+            {
+                "input": {
+                    "lines": cart_lines,
+                    "buyerIdentity": {
+                        "countryCode": destination["country"],
+                        "deliveryAddressPreferences": [{"deliveryAddress": address}],
+                    },
+                }
+            },
+        )
+        terminal = _terminal_response("quote", create_response)
+        if terminal is not None:
+            return terminal
+        create_data = _graphql_data(
+            json_object(create_response, "Shopify cart creation"),
+            "Shopify cart creation",
+        )
+        cart_create = create_data.get("cartCreate")
+        if not isinstance(cart_create, dict):
+            raise ToolError("Shopify cart creation response has no cartCreate object")
+        user_errors = cart_create.get("userErrors")
+        if not isinstance(user_errors, list):
+            raise ToolError("Shopify cart creation response has no userErrors array")
+        if user_errors:
+            raise ToolError(f"Shopify rejected cart creation: {_messages(user_errors)}")
+        cart = cart_create.get("cart")
+        if not isinstance(cart, dict) or not isinstance(cart.get("id"), str):
+            raise ToolError("Shopify cart creation response has no cart ID")
+        subtotal = _shopify_money(cart.get("cost"), "subtotalAmount", "Shopify cart subtotal")
+        rates_response = _graphql(
+            http,
+            detection,
+            RATE_QUERY,
+            {"id": cart["id"]},
+            accept="multipart/mixed; deferSpec=20220824, application/json",
+        )
+        terminal = _terminal_response("quote", rates_response)
+        if terminal is not None:
+            return terminal
+        options = [
+            _shipping_option(option)
+            for group in _delivery_groups(rates_response)
+            for option in _required_list(group, "deliveryOptions", "Shopify delivery group")
+        ]
+        return quote_outcome(ShopifyQuote(), options, subtotal)
+
+    def _sign(self, http: Http) -> None:
+        """A configured Web Bot Auth key signs every Shopify request of this store worker."""
+        if self.web_bot_auth is not None:
+            http.signer = build_signer(self.web_bot_auth)
+
+    def _variant_detail(
+        self, http: Http, detection: DetectedStore, reference: object
+    ) -> dict[str, Any]:
+        selected = parse_item_ref(reference, "shopify")
+        variant_id = selected.get("variant_id")
+        if not isinstance(variant_id, str):
+            raise ToolError("Shopify ref has no variant ID")
+        response = _graphql(http, detection, PRODUCT_DETAIL_QUERY, {"id": variant_id})
+        terminal = _terminal_response("product", response)
+        if terminal is not None:
+            return terminal
+        data = _graphql_data(json_object(response, "Shopify product detail"), "Shopify product detail")
+        node = data.get("node")
+        product = node.get("product") if isinstance(node, dict) else None
+        variants = product.get("variants") if isinstance(product, dict) else None
+        nodes = variants.get("nodes") if isinstance(variants, dict) else None
+        if not isinstance(product, dict) or not isinstance(nodes, list):
+            raise ToolError("Shopify ref no longer resolves to a product variant")
+        return search_result(
+            ShopifySearch(),
+            variant_id,
+            [_product_item(detection, product, value) for value in nodes],
+        )
+
+    def _url_detail(
+        self, http: Http, detection: DetectedStore, product_url: str
+    ) -> dict[str, Any]:
+        parts = urlsplit(product_url)
+        match = re.fullmatch(r"/products/([^/]+)", parts.path.rstrip("/"))
+        if url_origin(product_url) != detection.origin or match is None:
+            return api_error(
+                self.platform, "product", "Shopify product URL must be /products/<handle>"
+            )
+        handle = match.group(1)
+        response = http.request("GET", f"{detection.origin}/products/{handle}.js")
+        terminal = _terminal_response("product", response)
+        if terminal is not None:
+            return terminal
+        payload = json_object(response, "Shopify Ajax product detail")
+        if payload.get("handle") != handle:
+            return api_error(
+                self.platform, "product", "Shopify product endpoint returned another handle"
+            )
+        currency = payload.get("currency")
+        if currency is None:
+            cart = http.request("GET", detection.origin + "/cart.js")
+            terminal = _terminal_response("product", cart)
+            if terminal is not None:
+                return terminal
+            currency = json_object(cart, "Shopify Ajax cart").get("currency")
+        if not isinstance(currency, str) or not currency:
+            raise ToolError("Shopify Ajax product detail omitted storefront currency")
+        title = payload.get("title")
+        variants = payload.get("variants")
+        images = payload.get("images", [])
+        options = payload.get("options", [])
+        if (
+            not isinstance(title, str)
+            or not isinstance(variants, list)
+            or not isinstance(images, list)
+            or not isinstance(options, list)
+        ):
+            raise ToolError("Shopify Ajax product detail has an invalid product shape")
+        items = [
+            _ajax_product_item(
+                detection, payload, variant, options, images, currency, product_url
+            )
+            for variant in variants
+        ]
+        return search_result(ShopifySearch(), handle, items)
 
 
 def _ajax_product_item(
@@ -299,88 +386,6 @@ def _ajax_product_item(
     if type(compare_at) is int:
         item["compare_at_price"] = minor_money(str(compare_at), currency, 2)
     return item
-
-
-def quote(http: Http, detection: DetectedStore, reference: object) -> dict[str, object]:
-    from storefront.core import DEFAULT_DESTINATION
-
-    return quote_many(
-        http,
-        detection,
-        [{"ref": reference, "quantity": 1}],
-        DEFAULT_DESTINATION,
-    )
-
-
-def quote_many(
-    http: Http,
-    detection: DetectedStore,
-    lines: list[dict[str, Any]],
-    destination: dict[str, str],
-) -> dict[str, object]:
-    from storefront.core import parse_item_ref
-
-    cart_lines = []
-    for line in lines:
-        selected = parse_item_ref(line["ref"], "shopify")
-        variant_id = selected.get("variant_id")
-        if not isinstance(variant_id, str) or not variant_id.startswith(
-            "gid://shopify/ProductVariant/"
-        ):
-            raise ToolError("Shopify ref has no valid variant ID")
-        cart_lines.append(
-            {"merchandiseId": variant_id, "quantity": line["quantity"]}
-        )
-    address = destination_for("shopify", destination)
-    create_response = _graphql(
-        http,
-        detection,
-        CART_CREATE_MUTATION,
-        {
-            "input": {
-                "lines": cart_lines,
-                "buyerIdentity": {
-                    "countryCode": destination["country"],
-                    "deliveryAddressPreferences": [{"deliveryAddress": address}],
-                },
-            }
-        },
-    )
-    terminal = _terminal_response("quote", create_response)
-    if terminal is not None:
-        return terminal
-    create_data = _graphql_data(
-        json_object(create_response, "Shopify cart creation"),
-        "Shopify cart creation",
-    )
-    cart_create = create_data.get("cartCreate")
-    if not isinstance(cart_create, dict):
-        raise ToolError("Shopify cart creation response has no cartCreate object")
-    user_errors = cart_create.get("userErrors")
-    if not isinstance(user_errors, list):
-        raise ToolError("Shopify cart creation response has no userErrors array")
-    if user_errors:
-        raise ToolError(f"Shopify rejected cart creation: {_messages(user_errors)}")
-    cart = cart_create.get("cart")
-    if not isinstance(cart, dict) or not isinstance(cart.get("id"), str):
-        raise ToolError("Shopify cart creation response has no cart ID")
-    subtotal = _shopify_money(cart.get("cost"), "subtotalAmount", "Shopify cart subtotal")
-    rates_response = _graphql(
-        http,
-        detection,
-        RATE_QUERY,
-        {"id": cart["id"]},
-        accept="multipart/mixed; deferSpec=20220824, application/json",
-    )
-    terminal = _terminal_response("quote", rates_response)
-    if terminal is not None:
-        return terminal
-    options = [
-        _shipping_option(option)
-        for group in _delivery_groups(rates_response)
-        for option in _required_list(group, "deliveryOptions", "Shopify delivery group")
-    ]
-    return quote_outcome(ShopifyQuote(), options, subtotal)
 
 
 def _graphql(

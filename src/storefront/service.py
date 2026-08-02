@@ -30,8 +30,12 @@ PSEUDO = {
     "https://www.amazon.com": "amazon",
     "https://www.ebay.com": "ebay",
 }
-REAL_MODULES = {
-    "shopify": shopify, "woocommerce": woocommerce, "magento": magento,
+STOREFRONT_PLATFORMS = (
+    "shopify", "woocommerce", "magento", "bigcommerce", "squarespace",
+    "wix", "ecwid", "sfcc",
+)
+LEGACY_MODULES = {
+    "woocommerce": woocommerce, "magento": magento,
     "bigcommerce": bigcommerce, "squarespace": squarespace,
     "wix": extra, "ecwid": extra, "sfcc": extra,
 }
@@ -83,8 +87,6 @@ class LegacyAdapter:
             or (reference.get("product_url") if isinstance(reference, dict) else None)
             or (cached.get("url") if isinstance(cached, dict) else None)
         )
-        if isinstance(reference, dict) and hasattr(self.module, "product_detail"):
-            return self.module.product_detail(session, detection, reference)
         if platform == "bigcommerce" and isinstance(url, str):
             response = session.request("GET", url, follow_redirects=True)
             if response.status_code != 200:
@@ -132,8 +134,6 @@ class LegacyAdapter:
                     values = response.json()
                     if isinstance(values, list) and len(values) == 1 and isinstance(values[0], dict):
                         return _woo_detail(session, detection, values[0])
-        if platform == "shopify" and isinstance(url, str):
-            return shopify.product_url_detail(session, detection, url)
         return api_error(
             platform,
             "product",
@@ -158,8 +158,9 @@ class Storefront:
         self.data = data or DataStore()
         self.transport_factory = transport_factory or (lambda origin: None)
         settings = self.data.settings()
-        defaults: dict[str, Any] = {platform: LegacyAdapter(module) for platform, module in REAL_MODULES.items()}
+        defaults: dict[str, Any] = {platform: LegacyAdapter(module) for platform, module in LEGACY_MODULES.items()}
         defaults |= {
+            "shopify": shopify.Shopify(settings),
             "aliexpress": AliExpress(), "google_shopping": SerpApi("google_shopping"),
             "amazon": SerpApi("amazon"), "ebay": Ebay(settings),
             "shopify_global": ShopifyGlobal(settings),
@@ -434,8 +435,6 @@ class Storefront:
             base: dict[str, Any] = {"store": detection.origin, "input": {"store": jobs[0]["store"], **({"query": jobs[0]["query"]} if len(jobs) == 1 else {"queries": [job["query"] for job in jobs]})}, "detection": public_detection(detection, debug)}
             if not isinstance(detection, (DetectedStore, MagentoDetectedStore)):
                 return {**base, **api_error("unknown", "detect", detection.kind), **({"evidence": session.evidence} if debug else {})}
-            if detection.platform == "shopify":
-                session.signer = build_signer(self.web_bot_auth)
             adapter = self.adapters[detection.platform]
             products: dict[str, dict[str, Any]] = {}
             for job in jobs:
@@ -491,8 +490,6 @@ class Storefront:
                     **({"evidence": session.evidence} if debug else {}),
                 }
                 return [(index, _item_identity(item), error) for index, item in jobs]
-            if detection.platform == "shopify":
-                session.signer = build_signer(self.web_bot_auth)
             adapter = self.adapters[detection.platform]
             fetched: dict[str, dict[str, Any]] = {}
             for index, item in jobs:
@@ -551,8 +548,6 @@ class Storefront:
         session = self._session(origin)
         try:
             detection = self._detect(session, jobs[0][1]["store"], redetect)
-            if isinstance(detection, (DetectedStore, MagentoDetectedStore)) and detection.platform == "shopify":
-                session.signer = build_signer(self.web_bot_auth)
             results = []
             for index, job, resolved in jobs:
                 session.client.cookies.clear()
@@ -781,7 +776,7 @@ def _registry_value(detection: PositiveDetection) -> dict[str, Any]:
 def _registry_detection(origin: str, value: dict[str, Any]) -> PositiveDetection:
     platform, api_origin = value.get("platform"), value.get("api_origin", origin)
     evidence = value.get("evidence", ["vendor registry"])
-    registry_platforms = set(REAL_MODULES) | {"custom", "opencart", "zen_cart", "unknown"}
+    registry_platforms = set(STOREFRONT_PLATFORMS) | {"custom", "opencart", "zen_cart", "unknown"}
     if not isinstance(platform, str) or platform not in registry_platforms or not isinstance(api_origin, str) or not isinstance(evidence, list) or any(not isinstance(item, str) for item in evidence):
         raise ToolError(f"Vendor registry entry is not a supported storefront: {origin}")
     if platform == "magento":

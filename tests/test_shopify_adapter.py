@@ -9,6 +9,10 @@ from storefront.adapters import shopify
 from storefront.core import DEFAULT_DESTINATION, DetectedStore, Session, ToolError, destination_for, item_ref
 
 
+def adapter() -> shopify.Shopify:
+    return shopify.Shopify({})
+
+
 def detection() -> DetectedStore:
     return DetectedStore(
         origin="https://store.example",
@@ -59,7 +63,7 @@ def test_search_flattens_exact_variants() -> None:
         assert body["variables"] == {"query": "VALVE-1"}
         return httpx.Response(200, json={"data": {"products": {"nodes": [{"title": "Valve", "handle": "valve", "description": "Live", "images": {"nodes": [{"url": "https://cdn.test/valve.jpg"}]}, "variants": {"nodes": [{"id": "gid://shopify/ProductVariant/7", "title": "1 inch", "sku": "VALVE-1", "availableForSale": True, "selectedOptions": [{"name": "Size", "value": "1 inch"}], "price": {"amount": "12.50", "currencyCode": "USD"}, "compareAtPrice": None}]}}]}}}, request=request)
 
-    result = shopify.search(Session(httpx.MockTransport(handler)), detection(), "VALVE-1")
+    result = adapter().search(Session(httpx.MockTransport(handler)), detection(), "VALVE-1", 20, DEFAULT_DESTINATION)
     assert result["items"][0]["sku"] == "VALVE-1"
     assert result["items"][0]["price"] == {"amount": "12.50", "currency": "USD"}
     assert result["items"][0]["image_urls"] == ["https://cdn.test/valve.jpg"]
@@ -71,7 +75,7 @@ def test_graphql_error_shape_is_strict(errors: object) -> None:
         return httpx.Response(200, json={"errors": errors}, request=request)
 
     with pytest.raises(ToolError, match="GraphQL errors"):
-        shopify.search(Session(httpx.MockTransport(handler)), detection(), "bearing")
+        adapter().search(Session(httpx.MockTransport(handler)), detection(), "bearing", 20, DEFAULT_DESTINATION)
 
 
 def test_graphql_error_messages_are_preserved() -> None:
@@ -79,7 +83,7 @@ def test_graphql_error_messages_are_preserved() -> None:
         return httpx.Response(200, json={"errors": [{"message": "first"}, {"message": "second"}]}, request=request)
 
     with pytest.raises(ToolError, match="first; second"):
-        shopify.search(Session(httpx.MockTransport(handler)), detection(), "bearing")
+        adapter().search(Session(httpx.MockTransport(handler)), detection(), "bearing", 20, DEFAULT_DESTINATION)
 
 
 def test_quote_parses_deferred_multipart_and_preserves_pickup() -> None:
@@ -102,7 +106,7 @@ def test_quote_parses_deferred_multipart_and_preserves_pickup() -> None:
         )
         return httpx.Response(200, headers={"content-type": 'multipart/mixed; boundary="graphql"'}, content=payload, request=request)
 
-    result = shopify.quote_many(
+    result = adapter().quote(
         Session(httpx.MockTransport(handler)),
         detection(),
         [{"ref": item_ref("shopify", {"variant_id": "gid://shopify/ProductVariant/7"}), "quantity": 2}],
@@ -130,7 +134,7 @@ def test_signed_redirect_rebuilds_and_resigns_request() -> None:
         request.headers["Signature-Agent"] = f'"call-{signatures}"'
         return client.send(request, follow_redirects=False)
 
-    result = shopify.search(Session(httpx.MockTransport(handler), signer), detection(), "bearing")
+    result = adapter().search(Session(httpx.MockTransport(handler), signer), detection(), "bearing", 20, DEFAULT_DESTINATION)
     assert result["items"] == []
     assert signatures == 2
     assert requests[0].headers["Signature-Agent"] != requests[1].headers["Signature-Agent"]
@@ -151,7 +155,7 @@ def test_empty_rate_list_is_not_free_shipping() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=next(responses), request=request)
 
-    result = shopify.quote_many(
+    result = adapter().quote(
         Session(httpx.MockTransport(handler)),
         detection(),
         [{"ref": item_ref("shopify", {"variant_id": "gid://shopify/ProductVariant/7"}), "quantity": 1}],
