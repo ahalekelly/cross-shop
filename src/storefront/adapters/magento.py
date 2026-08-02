@@ -10,7 +10,7 @@ from urllib.parse import parse_qsl, urljoin, urlsplit, urlunsplit
 
 import httpx
 from storefront.core import (
-    Http,
+    Session,
     MagentoDetectedStore,
     MagentoQuote,
     MagentoSearch,
@@ -188,7 +188,7 @@ class ProductPage(HTMLParser):
 
 
 def detect(
-    http: Http,
+    http: Session,
     origin: str,
     entry_url: str,
     homepage: httpx.Response,
@@ -297,7 +297,7 @@ def _homepage_markers(homepage: httpx.Response) -> list[str]:
 class Magento:
     platform = "magento"
 
-    def search(self, http: Http, detection: MagentoDetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
+    def search(self, http: Session, detection: MagentoDetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
         del destination
         if detection.search_source == "graphql":
             return _graphql_search(http, detection, query, limit)
@@ -305,7 +305,7 @@ class Magento:
             return _html_search(http, detection, query, limit)
         raise AssertionError(detection.search_source)
 
-    def product(self, http: Http, detection: MagentoDetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
+    def product(self, http: Session, detection: MagentoDetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
         del destination
         reference = item.get("ref")
         sku = reference.get("sku") if reference is not None else None
@@ -321,12 +321,12 @@ class Magento:
             f"{self.platform} cannot resolve this input to live exact product detail",
         )
 
-    def quote(self, http: Http, detection: MagentoDetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
+    def quote(self, http: Session, detection: MagentoDetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
         return _quote(http, detection, lines, destination)
 
 
 def _graphql_search(
-    http: Http, detection: MagentoDetectedStore, query: str, limit: int
+    http: Session, detection: MagentoDetectedStore, query: str, limit: int
 ) -> dict[str, object]:
     origin = detection.api_origin
     response = http.request(
@@ -408,7 +408,7 @@ def _graphql_search(
 
 
 def _quote(
-    http: Http,
+    http: Session,
     detection: MagentoDetectedStore,
     lines: list[dict[str, Any]],
     destination: dict[str, str],
@@ -554,7 +554,7 @@ def quote_path(value: str) -> str:
 
 
 def _graphql_detail(
-    http: Http,
+    http: Session,
     origin: str,
     sku: str,
 ) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
@@ -773,7 +773,7 @@ def _price(value: Any) -> dict[str, str] | None:
 
 
 def _html_search(
-    http: Http,
+    http: Session,
     detection: MagentoDetectedStore,
     query: str,
     limit: int,

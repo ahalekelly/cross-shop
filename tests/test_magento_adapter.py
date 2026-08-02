@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT))
 core = importlib.import_module("storefront.core")
 magento = importlib.import_module("storefront.adapters.magento")
 MagentoDetectedStore = core.MagentoDetectedStore
-Http = core.Http
+Session = core.Session
 ToolError = core.ToolError
 parse_item_ref = core.parse_item_ref
 DEFAULT_DESTINATION = core.DEFAULT_DESTINATION
@@ -83,7 +83,7 @@ class MagentoDetectionTests(unittest.TestCase):
                 },
             )
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client:
             result = magento.detect(
                 http,
@@ -101,7 +101,7 @@ class MagentoDetectionTests(unittest.TestCase):
         def handler(request: httpx.Request) -> httpx.Response:
             return response(request, 400)
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client:
             result = magento.detect(
                 http,
@@ -122,7 +122,7 @@ class MagentoDetectionTests(unittest.TestCase):
                 },
             )
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client, self.assertRaisesRegex(ToolError, "contradictory"):
             magento.detect(
                 http,
@@ -132,7 +132,7 @@ class MagentoDetectionTests(unittest.TestCase):
             )
 
     def test_generic_denials_without_magento_marker_do_not_detect(self) -> None:
-        http = Http(
+        http = Session(
             httpx.MockTransport(
                 lambda request: response(request, 403, content=b"Forbidden")
             )
@@ -148,7 +148,7 @@ class MagentoDetectionTests(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_homepage_marker_survives_denied_probes(self) -> None:
-        http = Http(
+        http = Session(
             httpx.MockTransport(
                 lambda request: response(request, 403, content=b"Forbidden")
             )
@@ -312,7 +312,7 @@ class MagentoSearchTests(unittest.TestCase):
                 },
             )
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client:
             result = adapter().search(http, detection(), "extension", 20, DEFAULT_DESTINATION)
 
@@ -375,7 +375,7 @@ class MagentoSearchTests(unittest.TestCase):
                 },
             )
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client:
             result = adapter().search(http, detection(), "bearing", 20, DEFAULT_DESTINATION)
 
@@ -395,7 +395,7 @@ class MagentoSearchTests(unittest.TestCase):
                 return response(request, content=b"<html></html>")
             raise AssertionError(request.url)
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client:
             result = adapter().search(http, detection("html"), "bearing", 20, DEFAULT_DESTINATION)
 
@@ -417,7 +417,7 @@ class MagentoSearchTests(unittest.TestCase):
                 return response(request, content=b"<html></html>")
             raise AssertionError(request.url)
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client:
             result = adapter().search(http, detection("html"), "bearing", 20, DEFAULT_DESTINATION)
 
@@ -432,7 +432,7 @@ class MagentoSearchTests(unittest.TestCase):
                 headers={"Location": "https://other.test/search/bearing"},
             )
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client, self.assertRaisesRegex(ToolError, "same storefront"):
             adapter().search(http, detection("html"), "bearing", 20, DEFAULT_DESTINATION)
 
@@ -506,7 +506,7 @@ class MagentoSearchTests(unittest.TestCase):
             evidence=("magento_graphql_product_search",),
             search_source="graphql",
         )
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client:
             result = adapter().search(http, custom_detection, "bearing", 20, DEFAULT_DESTINATION)
 
@@ -633,7 +633,7 @@ class MagentoSearchTests(unittest.TestCase):
                 )
             raise AssertionError(sku)
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client:
             result = adapter().search(http, detection(), "bearing", 20, DEFAULT_DESTINATION)
 
@@ -678,7 +678,7 @@ class MagentoSearchTests(unittest.TestCase):
                 return response(request, 404)
             raise AssertionError(request.url)
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client:
             result = adapter().search(http, detection("html"), "bearing", 20, DEFAULT_DESTINATION)
 
@@ -701,7 +701,7 @@ class MagentoSearchTests(unittest.TestCase):
                 return response(request, 403, content=b"Forbidden")
             raise AssertionError(request.url)
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client:
             result = adapter().search(http, detection("html"), "bearing", 20, DEFAULT_DESTINATION)
 
@@ -717,7 +717,7 @@ class MagentoSearchTests(unittest.TestCase):
                 return response(request, 500)
             raise AssertionError(request.url)
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with (
             http.client,
             self.assertRaisesRegex(ToolError, "Magento HTML search returned HTTP 500"),
@@ -734,7 +734,7 @@ class MagentoSearchTests(unittest.TestCase):
                 content=b'<script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script>',
             )
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client:
             result = adapter().search(http, detection("html"), "bearing", 20, DEFAULT_DESTINATION)
 
@@ -783,7 +783,7 @@ class MagentoQuoteTests(unittest.TestCase):
 
     def test_exact_sku_cart_totals_currency_and_rate_dispositions(self) -> None:
         handler, calls, token = self.handler()
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         reference = magento.item_ref("magento", {"sku": "BRG-STEEL"})
         with http.client:
             result = adapter().quote(
@@ -832,7 +832,7 @@ class MagentoQuoteTests(unittest.TestCase):
         invalid_quantities = [None, True, 2]
         for quantity in invalid_quantities:
             with self.subTest(quantity=quantity):
-                http = Http(httpx.MockTransport(invalid_handler(quantity)))
+                http = Session(httpx.MockTransport(invalid_handler(quantity)))
                 with (
                     http.client,
                     self.assertRaisesRegex(ToolError, "requested quantity"),
@@ -846,7 +846,7 @@ class MagentoQuoteTests(unittest.TestCase):
 
     def test_empty_rate_array_is_not_free_shipping(self) -> None:
         handler, _, _ = self.handler(fixture_json("platform-magento-empty.json"))
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client:
             result = adapter().quote(
                 http,
@@ -863,7 +863,7 @@ class MagentoQuoteTests(unittest.TestCase):
     def test_noncomparable_options_are_preserved_but_not_quoted(self) -> None:
         rates = fixture_json("platform-magento-rates.json")[1:]
         handler, _, _ = self.handler(rates)
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client:
             result = adapter().quote(
                 http,
@@ -882,7 +882,7 @@ class MagentoQuoteTests(unittest.TestCase):
                 rate = fixture_json("platform-magento-rates.json")[0]
                 rate["available"] = value
                 handler, _, _ = self.handler([rate])
-                http = Http(httpx.MockTransport(handler))
+                http = Session(httpx.MockTransport(handler))
                 with (
                     http.client,
                     self.assertRaisesRegex(ToolError, "available must be a boolean"),
@@ -897,7 +897,7 @@ class MagentoQuoteTests(unittest.TestCase):
         missing = fixture_json("platform-magento-rates.json")[0]
         missing.pop("available")
         handler, _, _ = self.handler([missing])
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with (
             http.client,
             self.assertRaisesRegex(ToolError, "available must be a boolean"),
@@ -916,7 +916,7 @@ class MagentoQuoteTests(unittest.TestCase):
         rate["available"] = False
         rate["error_message"] = ""
         handler, _, _ = self.handler([rate])
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
 
         with http.client:
             result = adapter().quote(
@@ -945,7 +945,7 @@ class MagentoQuoteTests(unittest.TestCase):
         ]
         for headers, content, expected in cases:
             with self.subTest(expected=expected):
-                http = Http(httpx.MockTransport(denial(headers, content)))
+                http = Session(httpx.MockTransport(denial(headers, content)))
                 with http.client:
                     result = adapter().quote(
                         http,
@@ -958,7 +958,7 @@ class MagentoQuoteTests(unittest.TestCase):
                     self.assertEqual(result["state"], "bot_wall")
 
     def test_reference_must_be_exactly_one_sku(self) -> None:
-        http = Http(
+        http = Session(
             httpx.MockTransport(lambda request: self.fail("request must not run"))
         )
         with (

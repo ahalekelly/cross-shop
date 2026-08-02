@@ -18,7 +18,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 from storefront.core import (
     DEFAULT_DESTINATION,
     DetectedStore,
-    Http,
+    Session,
     ToolError,
     destination_for,
     item_ref,
@@ -128,7 +128,7 @@ class SquarespaceTests(unittest.TestCase):
                 )
             raise AssertionError(request.url)
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client:
             result = adapter().search(http, detection(), "KITSUI", 20, DEFAULT_DESTINATION)
 
@@ -196,7 +196,7 @@ class SquarespaceTests(unittest.TestCase):
                 request, content=fixture("platform-squarespace-collection.json")
             )
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client:
             http.get(
                 http.storefront_entry(
@@ -254,7 +254,7 @@ class SquarespaceTests(unittest.TestCase):
                 )
             raise AssertionError(request.url)
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client:
             result = adapter().quote(http, detection(), [{"ref": reference(), "quantity": 1}], DEFAULT_DESTINATION)
 
@@ -304,7 +304,7 @@ class SquarespaceTests(unittest.TestCase):
                 return response(request, json_value=added)
             raise AssertionError("shipping must not run")
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client, self.assertRaisesRegex(ToolError, "selected product"):
             adapter().quote(http, detection(), [{"ref": reference(), "quantity": 1}], DEFAULT_DESTINATION)
 
@@ -343,7 +343,7 @@ class SquarespaceTests(unittest.TestCase):
                         return response(request, json_value=shipping)
                     raise AssertionError(request.url)
 
-                http = Http(httpx.MockTransport(handler))
+                http = Session(httpx.MockTransport(handler))
                 with http.client:
                     result = adapter().quote(http, detection(), [{"ref": reference(), "quantity": 1}], DEFAULT_DESTINATION)
                 self.assertEqual(result["kind"], "empty")

@@ -10,7 +10,7 @@ import httpx
 from storefront.core import (
     DetectedStore,
     EcwidSearch,
-    Http,
+    Session,
     SfccSearch,
     StorefrontBotWall,
     ToolError,
@@ -99,7 +99,7 @@ class _BrowserBoundary:
 
     platform: ExtraPlatform
 
-    def product(self, http: Http, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
+    def product(self, http: Session, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
         del http, detection, item, destination
         return api_error(
             self.platform,
@@ -107,7 +107,7 @@ class _BrowserBoundary:
             f"{self.platform} cannot resolve this input to live exact product detail",
         )
 
-    def quote(self, http: Http, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
+    def quote(self, http: Session, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
         del http, detection, lines, destination
         return unsupported_operation(
             "quote", self.platform, QUOTE_BOUNDARIES[self.platform], browser_required=True
@@ -117,7 +117,7 @@ class _BrowserBoundary:
 class Wix(_BrowserBoundary):
     platform: ExtraPlatform = "wix"
 
-    def search(self, http: Http, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
+    def search(self, http: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
         del destination
         _require_query(self.platform, query)
         return _wix_search(http, detection, query, limit)
@@ -126,7 +126,7 @@ class Wix(_BrowserBoundary):
 class Ecwid(_BrowserBoundary):
     platform: ExtraPlatform = "ecwid"
 
-    def search(self, http: Http, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
+    def search(self, http: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
         del destination
         _require_query(self.platform, query)
         return _ecwid_search(http, detection, query, limit)
@@ -135,7 +135,7 @@ class Ecwid(_BrowserBoundary):
 class Sfcc(_BrowserBoundary):
     platform: ExtraPlatform = "sfcc"
 
-    def search(self, http: Http, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
+    def search(self, http: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
         del destination
         _require_query(self.platform, query)
         return _sfcc_search(http, detection, query, limit)
@@ -146,7 +146,7 @@ def _require_query(platform: ExtraPlatform, query: str) -> None:
         raise ToolError(f"{platform} search requires a nonempty query")
 
 
-def _wix_search(http: Http, detection: DetectedStore, query: str, limit: int) -> dict[str, object]:
+def _wix_search(http: Session, detection: DetectedStore, query: str, limit: int) -> dict[str, object]:
     origin = _api_origin(detection, "wix")
     token_response = http.get(http.wix_bootstrap(origin))
     terminal = _wall(token_response, "wix")
@@ -243,7 +243,7 @@ def _wix_item(detection: DetectedStore, value: Any) -> dict[str, Any]:
 
 
 def _ecwid_search(
-    http: Http, detection: DetectedStore, query: str, limit: int
+    http: Session, detection: DetectedStore, query: str, limit: int
 ) -> dict[str, object]:
     _api_origin(detection, "ecwid")
     homepage = http.get(http.detected_entry(detection.entry_url))
@@ -376,7 +376,7 @@ def _ecwid_item(store_id: str, currency: str, value: Any) -> dict[str, Any]:
     return item
 
 
-def _sfcc_search(http: Http, detection: DetectedStore, query: str, limit: int) -> dict[str, object]:
+def _sfcc_search(http: Session, detection: DetectedStore, query: str, limit: int) -> dict[str, object]:
     _api_origin(detection, "sfcc")
     route = canonical_url(urljoin(detection.entry_url, "search"))
     if url_origin(route) != detection.origin:

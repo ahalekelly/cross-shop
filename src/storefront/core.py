@@ -216,9 +216,6 @@ class Session:
         )
 
 
-Http = Session
-
-
 def normalize_store_url(value: str) -> str:
     url = value if "://" in value else f"https://{value}"
     parts = urlsplit(url)
@@ -611,7 +608,7 @@ def shipping_option(context: Any, option_id: Any, title: Any, disposition: Dispo
 
 
 def search_result(context: Any, query: str, items: list[dict[str, Any]]) -> dict[str, Any]:
-    return {"kind": "search", "operation": "search", "platform": context.platform, "query": query, "items": items, **_facts(context)}
+    return {"kind": "search", "platform": context.platform, "query": query, "items": items, **_facts(context)}
 
 
 def quote_outcome(context: Any, options: list[dict[str, Any]], subtotal: dict[str, str], *, no_quote_reason: str = "empty_rate_list") -> dict[str, Any]:
@@ -620,7 +617,7 @@ def quote_outcome(context: Any, options: list[dict[str, Any]], subtotal: dict[st
         item["id"] for item in options if item.get("disposition") == "fallback"
     ]
     kind = "quote" if rates else "fallback" if fallback_ids else "empty"
-    result: dict[str, Any] = {"kind": kind, "operation": "quote", "platform": context.platform, "shipping_options": options, "rates": rates, "subtotal": subtotal, **_facts(context)}
+    result: dict[str, Any] = {"kind": kind, "platform": context.platform, "shipping_options": options, "rates": rates, "subtotal": subtotal, **_facts(context)}
     if kind == "fallback":
         result["fallback_rate_ids"] = fallback_ids
     if kind == "empty":

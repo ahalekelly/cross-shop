@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 import httpx
 from storefront.core import (
     DetectedStore,
-    Http,
+    Session,
     StorefrontBotWall,
     ToolError,
     WooCommerceQuote,
@@ -31,7 +31,7 @@ from storefront.core import (
 
 API_PATH = "/wp-json/wc/store/v1"
 def detect(
-    http: Http, origin: str, entry_url: str
+    http: Session, origin: str, entry_url: str
 ) -> DetectedStore | StorefrontBotWall | None:
     response = http.get(
         http.woo_products(origin, "__codex_platform_probe__", 1)
@@ -67,7 +67,7 @@ def detect(
 class WooCommerce:
     platform = "woocommerce"
 
-    def search(self, http: Http, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
+    def search(self, http: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
         del destination
         response = http.get(http.woo_products(detection.origin, query, 20))
         terminal = _terminal_response("search", response)
@@ -80,7 +80,7 @@ class WooCommerce:
             [_product_item(product) for product in products][:limit],
         )
 
-    def product(self, http: Http, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
+    def product(self, http: Session, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
         del destination
         reference = item.get("ref")
         product_id = reference.get("product_id") if reference is not None else None
@@ -108,12 +108,12 @@ class WooCommerce:
             f"{self.platform} cannot resolve this input to live exact product detail",
         )
 
-    def quote(self, http: Http, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
+    def quote(self, http: Session, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
         return _quote(http, detection, lines, destination)
 
 
 def _detail(
-    http: Http, detection: DetectedStore, product: dict[str, Any]
+    http: Session, detection: DetectedStore, product: dict[str, Any]
 ) -> dict[str, Any]:
     """Expands a variable parent into the concrete variations that carry exact refs."""
     if product.get("type") != "variable":
@@ -160,7 +160,7 @@ def _detail(
 
 
 def _quote(
-    http: Http,
+    http: Session,
     detection: DetectedStore,
     lines: list[dict[str, Any]],
     destination: dict[str, str],

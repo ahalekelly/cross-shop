@@ -15,7 +15,7 @@ from pathlib import Path
 import httpx
 
 
-from storefront.core import DEFAULT_DESTINATION, DetectedStore, Http, ToolError, parse_item_ref, validate_ref
+from storefront.core import DEFAULT_DESTINATION, DetectedStore, Session, ToolError, parse_item_ref, validate_ref
 from storefront.adapters import woocommerce
 
 
@@ -74,7 +74,7 @@ class WooCommerceTests(unittest.TestCase):
             )
 
         result = adapter().search(
-            Http(httpx.MockTransport(handler)), detection(), "sensor", 20, DEFAULT_DESTINATION
+            Session(httpx.MockTransport(handler)), detection(), "sensor", 20, DEFAULT_DESTINATION
         )
         self.assertEqual(
             result["items"][0]["price"], {"amount": "5.95", "currency": "USD"}
@@ -114,7 +114,7 @@ class WooCommerceTests(unittest.TestCase):
                     invalid["prices"][field] = value
                 else:
                     invalid[field] = value
-                http = Http(
+                http = Session(
                     httpx.MockTransport(
                         lambda request, invalid=invalid: httpx.Response(
                             200, json=[invalid], request=request
@@ -222,7 +222,7 @@ class WooCommerceTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ToolError, "cart cleanup failed"):
             adapter().quote(
-                Http(httpx.MockTransport(handler)),
+                Session(httpx.MockTransport(handler)),
                 detection(),
                 [{"ref": reference, "quantity": 1}],
                 DEFAULT_DESTINATION,
@@ -277,7 +277,7 @@ class WooCommerceTests(unittest.TestCase):
             {"product_id": 7, "product_type": "simple", "minimum": 1},
         )
         result = adapter().quote(
-            Http(httpx.MockTransport(handler)),
+            Session(httpx.MockTransport(handler)),
             detection(),
             [{"ref": reference, "quantity": 1}],
             DEFAULT_DESTINATION,

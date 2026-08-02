@@ -10,7 +10,7 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 from storefront.core import (
     DetectedStore,
-    Http,
+    Session,
     ShopifyQuote,
     ShopifySearch,
     ShopifyShipping,
@@ -102,7 +102,7 @@ class SignedRedirectBoundary(ToolError):
 
 
 def detect(
-    http: Http, origin: str, entry_url: str, homepage: httpx.Response
+    http: Session, origin: str, entry_url: str, homepage: httpx.Response
 ) -> DetectedStore | None:
     candidates = [origin]
     backends = sorted(
@@ -163,7 +163,7 @@ class Shopify:
     def __init__(self, settings: dict[str, Any]) -> None:
         self.web_bot_auth = settings.get("web_bot_auth")
 
-    def search(self, http: Http, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
+    def search(self, http: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
         del destination
         self._sign(http)
         response = _graphql(http, detection, PRODUCT_QUERY, {"query": query})
@@ -189,7 +189,7 @@ class Shopify:
                 items.append(_product_item(detection, product, variant))
         return search_result(ShopifySearch(), query, items[:limit])
 
-    def product(self, http: Http, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
+    def product(self, http: Session, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
         del destination
         self._sign(http)
         reference = item.get("ref")
@@ -204,7 +204,7 @@ class Shopify:
             f"{self.platform} cannot resolve this input to live exact product detail",
         )
 
-    def quote(self, http: Http, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
+    def quote(self, http: Session, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
         self._sign(http)
         cart_lines = []
         for line in lines:
@@ -268,13 +268,13 @@ class Shopify:
         ]
         return quote_outcome(ShopifyQuote(), options, subtotal)
 
-    def _sign(self, http: Http) -> None:
+    def _sign(self, http: Session) -> None:
         """A configured Web Bot Auth key signs every Shopify request of this store worker."""
         if self.web_bot_auth is not None:
             http.signer = build_signer(self.web_bot_auth)
 
     def _variant_detail(
-        self, http: Http, detection: DetectedStore, reference: object
+        self, http: Session, detection: DetectedStore, reference: object
     ) -> dict[str, Any]:
         selected = parse_item_ref(reference, "shopify")
         variant_id = selected.get("variant_id")
@@ -298,7 +298,7 @@ class Shopify:
         )
 
     def _url_detail(
-        self, http: Http, detection: DetectedStore, product_url: str
+        self, http: Session, detection: DetectedStore, product_url: str
     ) -> dict[str, Any]:
         parts = urlsplit(product_url)
         match = re.fullmatch(r"/products/([^/]+)", parts.path.rstrip("/"))
@@ -389,7 +389,7 @@ def _ajax_product_item(
 
 
 def _graphql(
-    http: Http,
+    http: Session,
     detection: DetectedStore,
     query: str,
     variables: dict[str, Any],
@@ -404,7 +404,7 @@ def _graphql(
 
 
 def _signed_post(
-    http: Http, target: str, payload: dict[str, Any], accept: str
+    http: Session, target: str, payload: dict[str, Any], accept: str
 ) -> httpx.Response:
     api = urlsplit(target)
     api_authority = (api.hostname, api.port or 443)

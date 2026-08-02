@@ -14,7 +14,7 @@ from storefront.core import (
     BigCommerceSearch,
     BigCommerceShipping,
     DetectedStore,
-    Http,
+    Session,
     ToolError,
     api_error,
     bot_wall,
@@ -180,11 +180,11 @@ class ProductParser(HTMLParser):
 class BigCommerce:
     platform = PLATFORM
 
-    def search(self, http: Http, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
+    def search(self, http: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
         del destination
         return _search(http, detection, query, limit)
 
-    def product(self, http: Http, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
+    def product(self, http: Session, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
         del detection, destination
         reference = item.get("ref")
         url = item.get("url") or (reference.get("product_url") if reference is not None else None)
@@ -206,11 +206,11 @@ class BigCommerce:
             )
         return detail
 
-    def quote(self, http: Http, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
+    def quote(self, http: Session, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
         return _quote(http, detection, lines, destination)
 
 
-def _search(http: Http, detection: DetectedStore, query: str, limit: int) -> dict[str, object]:
+def _search(http: Session, detection: DetectedStore, query: str, limit: int) -> dict[str, object]:
     response = http.get(http.bigcommerce_search(detection.origin, query))
     terminal = _terminal(
         "search", "/search.php", response, "public HTML search refused"
@@ -261,7 +261,7 @@ def _search(http: Http, detection: DetectedStore, query: str, limit: int) -> dic
 
 
 def _quote(
-    http: Http,
+    http: Session,
     detection: DetectedStore,
     lines: list[dict[str, Any]],
     destination: dict[str, str],
@@ -586,7 +586,7 @@ def _shipping_option(value: Any, currency: str) -> dict[str, Any]:
     )
 
 
-def _cookie(http: Http, name: str) -> str:
+def _cookie(http: Session, name: str) -> str:
     matches = {
         unquote(value.value) for value in http.client.cookies.jar if value.name == name
     }

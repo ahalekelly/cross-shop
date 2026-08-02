@@ -9,7 +9,7 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 from storefront.core import (
     DetectedStore,
-    Http,
+    Session,
     SquarespaceQuote,
     SquarespaceSearch,
     SquarespaceShipping,
@@ -67,11 +67,11 @@ class SearchParser(HTMLParser):
 class Squarespace:
     platform = PLATFORM
 
-    def search(self, http: Http, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
+    def search(self, http: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
         del destination
         return _search(http, detection, query, limit)
 
-    def product(self, http: Http, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
+    def product(self, http: Session, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
         del destination
         reference = item.get("ref")
         collection = (
@@ -103,11 +103,11 @@ class Squarespace:
             f"{PLATFORM} cannot resolve this input to live exact product detail",
         )
 
-    def quote(self, http: Http, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
+    def quote(self, http: Session, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
         return _quote(http, detection, lines, destination)
 
 
-def _search(http: Http, detection: DetectedStore, query: str, limit: int) -> dict[str, object]:
+def _search(http: Session, detection: DetectedStore, query: str, limit: int) -> dict[str, object]:
     if urlsplit(detection.entry_url).path not in {"", "/"}:
         response = http.get(http.squarespace_entry_json(detection.entry_url))
         terminal = _terminal(
@@ -178,7 +178,7 @@ def _search(http: Http, detection: DetectedStore, query: str, limit: int) -> dic
 
 
 def _quote(
-    http: Http,
+    http: Session,
     detection: DetectedStore,
     lines: list[dict[str, Any]],
     destination: dict[str, str],
@@ -514,7 +514,7 @@ def _shipping_option(value: Any) -> dict[str, Any]:
     return shipping_option(SquarespaceShipping(), option_id, title, disposition, amount)
 
 
-def _cookie(http: Http, name: str) -> str:
+def _cookie(http: Session, name: str) -> str:
     matches = {value.value for value in http.client.cookies.jar if value.name == name}
     if len(matches) != 1:
         raise ToolError(f"Squarespace collection must set exactly one {name} cookie")

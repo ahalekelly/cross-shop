@@ -18,7 +18,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 from storefront.core import (
     DEFAULT_DESTINATION,
     DetectedStore,
-    Http,
+    Session,
     ToolError,
     destination_for,
     item_ref,
@@ -126,7 +126,7 @@ class BigCommerceTests(unittest.TestCase):
                 headers={"Content-Type": "text/html"},
             )
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client:
             result = adapter().search(http, detection(), "bearing", 20, DEFAULT_DESTINATION)
 
@@ -161,7 +161,7 @@ class BigCommerceTests(unittest.TestCase):
             )
 
         result = adapter().search(
-            Http(httpx.MockTransport(handler)), detection(), "bearing", 20, DEFAULT_DESTINATION
+            Session(httpx.MockTransport(handler)), detection(), "bearing", 20, DEFAULT_DESTINATION
         )
 
         self.assertEqual(len(result["items"]), 1)
@@ -197,7 +197,7 @@ class BigCommerceTests(unittest.TestCase):
                 request, content=body, headers={"Content-Type": "text/html"}
             )
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client:
             result = adapter().search(http, detection(), "BRG-1", 20, DEFAULT_DESTINATION)
 
@@ -256,7 +256,7 @@ class BigCommerceTests(unittest.TestCase):
                 )
             raise AssertionError(request.url)
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client:
             result = adapter().search(http, detection(), "bearing", 20, DEFAULT_DESTINATION)
 
@@ -355,7 +355,7 @@ class BigCommerceTests(unittest.TestCase):
                 return response(request, json_value=checkout)
             raise AssertionError(request.url)
 
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         reference = item_ref(
             "bigcommerce",
             {
@@ -420,7 +420,7 @@ class BigCommerceTests(unittest.TestCase):
                 "product_url": "https://bigcommerce.test/precision-bearing/",
             },
         )
-        http = Http(httpx.MockTransport(handler))
+        http = Session(httpx.MockTransport(handler))
         with http.client, self.assertRaisesRegex(ToolError, "exactly the selected"):
             adapter().quote(http, detection(), [{"ref": reference, "quantity": 1}], DEFAULT_DESTINATION)
 
@@ -434,7 +434,7 @@ class BigCommerceTests(unittest.TestCase):
                 )
             raise AssertionError("cart must not run")
 
-        http = Http(httpx.MockTransport(configurable))
+        http = Session(httpx.MockTransport(configurable))
         reference = item_ref(
             "bigcommerce",
             {"product_id": 124, "product_url": "https://bigcommerce.test/configured/"},
@@ -444,7 +444,7 @@ class BigCommerceTests(unittest.TestCase):
         self.assertEqual(result["status"], "api_error")
         self.assertEqual(result["fields"], ["attribute[7]"])
 
-        http = Http(httpx.MockTransport(configurable))
+        http = Session(httpx.MockTransport(configurable))
         stale = item_ref(
             "bigcommerce",
             {"product_id": 125, "product_url": "https://bigcommerce.test/configured/"},
@@ -453,7 +453,7 @@ class BigCommerceTests(unittest.TestCase):
             adapter().quote(http, detection(), [{"ref": stale, "quantity": 1}], DEFAULT_DESTINATION)
 
     def test_item_ref_rejects_tracking_query(self) -> None:
-        http = Http(
+        http = Session(
             httpx.MockTransport(lambda request: self.fail("request must not run"))
         )
         reference = item_ref(
