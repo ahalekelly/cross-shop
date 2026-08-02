@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from storefront.core import (
@@ -12,6 +13,7 @@ from storefront.core import (
     WooCommerceQuote,
     WooCommerceSearch,
     WooCommerceShipping,
+    api_error,
     bot_wall,
     destination_for,
     gated,
@@ -62,29 +64,107 @@ def detect(
     )
 
 
-def search(http: Http, detection: DetectedStore, query: str) -> dict[str, object]:
-    response = http.get(http.woo_products(detection.origin, query, 20))
-    terminal = _terminal_response("search", response)
-    if terminal is not None:
-        return terminal
-    products = json_list(response, "WooCommerce product search")
-    return search_result(
-        WooCommerceSearch(), query, [_product_item(product) for product in products]
+class WooCommerce:
+    platform = "woocommerce"
+
+    def search(self, http: Http, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
+        del destination
+        response = http.get(http.woo_products(detection.origin, query, 20))
+        terminal = _terminal_response("search", response)
+        if terminal is not None:
+            return terminal
+        products = json_list(response, "WooCommerce product search")
+        return search_result(
+            WooCommerceSearch(),
+            query,
+            [_product_item(product) for product in products][:limit],
+        )
+
+    def product(self, http: Http, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
+        del destination
+        reference = item.get("ref")
+        product_id = reference.get("product_id") if reference is not None else None
+        if isinstance(product_id, int):
+            response = http.request(
+                "GET", _api_base(detection) + f"/products/{product_id}"
+            )
+            if response.status_code == 200:
+                return _detail(
+                    http, detection, json_object(response, "WooCommerce product")
+                )
+        url = item.get("url")
+        if url is not None:
+            slug = urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1]
+            response = http.request(
+                "GET", _api_base(detection) + "/products", params={"slug": slug}
+            )
+            if response.status_code == 200:
+                values = response.json()
+                if isinstance(values, list) and len(values) == 1 and isinstance(values[0], dict):
+                    return _detail(http, detection, values[0])
+        return api_error(
+            self.platform,
+            "product",
+            "woocommerce cannot resolve this input to live exact product detail",
+        )
+
+    def quote(self, http: Http, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
+        return _quote(http, detection, lines, destination)
+
+
+def _detail(
+    http: Http, detection: DetectedStore, product: dict[str, Any]
+) -> dict[str, Any]:
+    """Expands a variable parent into the concrete variations that carry exact refs."""
+    if product.get("type") != "variable":
+        return _product_item(product)
+    product_id = product.get("id")
+    response = http.request(
+        "GET", _api_base(detection) + f"/products/{product_id}/variations"
     )
+    if response.status_code != 200:
+        return api_error(
+            "woocommerce",
+            "product",
+            "WooCommerce variations request failed",
+            response.status_code,
+        )
+    values = response.json()
+    if not isinstance(values, list):
+        raise ToolError("WooCommerce variations response must be an array")
+    items = []
+    for value in values:
+        if not isinstance(value, dict):
+            raise ToolError("WooCommerce variation must be an object")
+        attributes = value.get("attributes", [])
+        merged = {
+            **product,
+            **value,
+            "name": product.get("name"),
+            "type": "variation",
+            "permalink": product.get("permalink"),
+            "description": product.get("description", ""),
+            "short_description": product.get("short_description", ""),
+            "images": value.get("images", product.get("images", [])),
+            "add_to_cart": value.get("add_to_cart", product.get("add_to_cart")),
+        }
+        item = _product_item(merged)
+        item["variant"] = " / ".join(
+            str(attribute.get("term", attribute.get("value", "")))
+            for attribute in attributes
+            if isinstance(attribute, dict)
+        )
+        item["options"] = attributes
+        items.append(item)
+    return {"kind": "search", "platform": "woocommerce", "items": items}
 
 
-def quote(http: Http, detection: DetectedStore, reference: object) -> dict[str, object]:
-    from storefront.core import DEFAULT_DESTINATION
-
-    return quote_many(http, detection, [{"ref": reference, "quantity": 1}], DEFAULT_DESTINATION)
-
-
-def quote_many(
+def _quote(
     http: Http,
     detection: DetectedStore,
     lines: list[dict[str, Any]],
     destination: dict[str, str],
-) -> dict[str, object]:
+) -> dict[str, Any]:
     selected_lines = []
     for line in lines:
         selected = parse_item_ref(line["ref"], "woocommerce")

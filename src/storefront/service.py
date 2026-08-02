@@ -35,7 +35,7 @@ STOREFRONT_PLATFORMS = (
     "wix", "ecwid", "sfcc",
 )
 LEGACY_MODULES = {
-    "woocommerce": woocommerce, "magento": magento,
+    "magento": magento,
     "bigcommerce": bigcommerce, "squarespace": squarespace,
     "wix": extra, "ecwid": extra, "sfcc": extra,
 }
@@ -121,19 +121,6 @@ class LegacyAdapter:
                 return api_error(platform, "product", str(errors))
             values, _ = magento._detail_items(envelope, reference["sku"], detection.entry_url)
             return {"kind": "search", "platform": platform, "items": values}
-        if platform == "woocommerce":
-            product_id = reference.get("product_id") if isinstance(reference, dict) else None
-            if isinstance(product_id, int):
-                response = session.request("GET", detection.api_origin + f"/wp-json/wc/store/v1/products/{product_id}")
-                if response.status_code == 200:
-                    return _woo_detail(session, detection, json_object(response, "WooCommerce product"))
-            if isinstance(url, str):
-                slug = urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1]
-                response = session.request("GET", detection.api_origin + "/wp-json/wc/store/v1/products", params={"slug": slug})
-                if response.status_code == 200:
-                    values = response.json()
-                    if isinstance(values, list) and len(values) == 1 and isinstance(values[0], dict):
-                        return _woo_detail(session, detection, values[0])
         return api_error(
             platform,
             "product",
@@ -161,6 +148,7 @@ class Storefront:
         defaults: dict[str, Any] = {platform: LegacyAdapter(module) for platform, module in LEGACY_MODULES.items()}
         defaults |= {
             "shopify": shopify.Shopify(settings),
+            "woocommerce": woocommerce.WooCommerce(),
             "aliexpress": AliExpress(), "google_shopping": SerpApi("google_shopping"),
             "amazon": SerpApi("amazon"), "ebay": Ebay(settings),
             "shopify_global": ShopifyGlobal(settings),
@@ -709,54 +697,6 @@ class Storefront:
                         "evidence": ["global_catalog_result"],
                     },
                 )
-
-
-def _woo_detail(
-    session: Session, detection: PositiveDetection, product: dict[str, Any]
-) -> dict[str, Any]:
-    if product.get("type") != "variable":
-        return woocommerce._product_item(product)
-    product_id = product.get("id")
-    response = session.request(
-        "GET",
-        detection.api_origin
-        + f"/wp-json/wc/store/v1/products/{product_id}/variations",
-    )
-    if response.status_code != 200:
-        return api_error(
-            "woocommerce",
-            "product",
-            "WooCommerce variations request failed",
-            response.status_code,
-        )
-    values = response.json()
-    if not isinstance(values, list):
-        raise ToolError("WooCommerce variations response must be an array")
-    items = []
-    for value in values:
-        if not isinstance(value, dict):
-            raise ToolError("WooCommerce variation must be an object")
-        attributes = value.get("attributes", [])
-        merged = {
-            **product,
-            **value,
-            "name": product.get("name"),
-            "type": "variation",
-            "permalink": product.get("permalink"),
-            "description": product.get("description", ""),
-            "short_description": product.get("short_description", ""),
-            "images": value.get("images", product.get("images", [])),
-            "add_to_cart": value.get("add_to_cart", product.get("add_to_cart")),
-        }
-        item = woocommerce._product_item(merged)
-        item["variant"] = " / ".join(
-            str(attribute.get("term", attribute.get("value", "")))
-            for attribute in attributes
-            if isinstance(attribute, dict)
-        )
-        item["options"] = attributes
-        items.append(item)
-    return {"kind": "search", "platform": "woocommerce", "items": items}
 
 
 def _collect(detections: list[PositiveDetection], walls: list[StorefrontBotWall], value: PositiveDetection | StorefrontBotWall | None) -> None:

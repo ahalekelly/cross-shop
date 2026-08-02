@@ -86,7 +86,7 @@ def test_woocommerce_quote_many_reuses_token_and_cleans_every_line() -> None:
         {"ref": {"platform": "woocommerce", "store": "https://store.test", "product_id": 1, "product_type": "simple", "minimum": 1}, "quantity": 2},
         {"ref": {"platform": "woocommerce", "store": "https://store.test", "product_id": 2, "product_type": "variation", "minimum": 1}, "quantity": 1},
     ]
-    result = woocommerce.quote_many(Session(httpx.MockTransport(handler)), detected("woocommerce"), lines, DESTINATION)
+    result = woocommerce.WooCommerce().quote(Session(httpx.MockTransport(handler)), detected("woocommerce"), lines, DESTINATION)
     assert added == 2
     assert len(deleted) == 2
     assert result["subtotal"]["amount"] == "25.00"
@@ -203,7 +203,7 @@ def test_woocommerce_failed_second_add_cleans_first_line() -> None:
         {"ref": {"platform": "woocommerce", "store": "https://store.test", "product_id": 2, "product_type": "simple", "minimum": 1}, "quantity": 1},
     ]
     with pytest.raises(ToolError, match="HTTP 500"):
-        woocommerce.quote_many(
+        woocommerce.WooCommerce().quote(
             Session(httpx.MockTransport(handler)),
             detected("woocommerce"),
             lines,
