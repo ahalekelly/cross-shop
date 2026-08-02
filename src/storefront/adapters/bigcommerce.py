@@ -70,6 +70,8 @@ class SearchLink:
 class ProductPage:
     product_id: int
     title: str
+    description: str
+    image_urls: tuple[str, ...]
     configuration_fields: tuple[str, ...]
     attributes: dict[str, Any]
 
@@ -132,6 +134,8 @@ class ProductParser(HTMLParser):
         self.product_id: int | None = None
         self.configuration_fields: set[str] = set()
         self.title: str | None = None
+        self.description = ""
+        self.image_urls: list[str] = []
         self._in_title = False
         self._title_text: list[str] = []
 
@@ -140,6 +144,14 @@ class ProductParser(HTMLParser):
         if tag == "h1" and self.title is None:
             self._in_title = True
             self._title_text = []
+        property_name = (values.get("property") or values.get("name") or "").casefold()
+        content = values.get("content")
+        if property_name in {"description", "og:description"} and content and not self.description:
+            self.description = content
+        if property_name == "og:image" and content:
+            self.image_urls.append(content)
+        if tag == "img" and values.get("data-image-gallery-main") is not None and values.get("src"):
+            self.image_urls.append(values["src"] or "")
         name = values.get("name") or ""
         if tag == "input":
             if name == "product_id" and values.get("value"):
@@ -222,8 +234,25 @@ def quote_many(
     for line in lines:
         reference = parse_item_ref(line["ref"], PLATFORM)
         product_id = reference.get("product_id")
-        if type(product_id) is not int or product_id <= 0:
-            raise ToolError("BigCommerce ref has an invalid product ID")
+        product_url = reference.get("product_url")
+        if type(product_id) is not int or product_id <= 0 or not isinstance(product_url, str):
+            raise ToolError("BigCommerce ref has an invalid product identity")
+        if canonical_url(product_url) != product_url or url_origin(product_url) != detection.origin:
+            raise ToolError("BigCommerce ref product URL must be canonical and on the storefront")
+        page = http.request("GET", product_url, follow_redirects=True)
+        if page.status_code != 200 or canonical_url(str(page.url)) != product_url:
+            raise ToolError("BigCommerce ref product page no longer resolves")
+        product = _parse_product(page.text)
+        if product.product_id != product_id:
+            raise ToolError("BigCommerce ref product ID does not match its product URL")
+        if product.configuration_fields:
+            return unsupported_configuration(
+                PLATFORM,
+                list(product.configuration_fields),
+                "buyer choices are required and are never guessed",
+            )
+        if product.attributes.get("instock") is not True or product.attributes.get("purchasable") is not True:
+            raise ToolError("BigCommerce selected product is not currently purchasable")
         selected.append((product_id, line["quantity"]))
     http.client.cookies.clear()
     created = http.request(
@@ -463,6 +492,8 @@ def _product(page: str, product_url: str) -> dict[str, Any]:
             PLATFORM, {"product_id": parsed.product_id, "product_url": product_url}
         ),
         "title": parsed.title,
+        "description": parsed.description,
+        "image_urls": list(parsed.image_urls),
         "variant": None,
         "sku": sku,
         "barcode": barcode,
@@ -501,6 +532,8 @@ def _parse_product(page: str) -> ProductPage:
     return ProductPage(
         parser.product_id,
         parser.title,
+        parser.description,
+        tuple(dict.fromkeys(parser.image_urls)),
         tuple(sorted(parser.configuration_fields)),
         attributes,
     )

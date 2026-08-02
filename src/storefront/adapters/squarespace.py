@@ -145,10 +145,33 @@ def quote_many(
             raise ToolError("Squarespace ref has unexpected fields")
         selected.append((reference["collection_url"], reference["item_id"], reference["sku"], line["quantity"]))
     http.client.cookies.clear()
-    first_collection = selected[0][0]
-    collection = http.request("GET", first_collection, params={"format": "json"}, follow_redirects=True)
-    if collection.status_code != 200:
-        raise ToolError(f"Squarespace collection returned HTTP {collection.status_code}")
+    collections: dict[str, dict[str, Any]] = {}
+    for collection_url, item_id, sku, _ in selected:
+        if collection_url not in collections:
+            response = http.request(
+                "GET", collection_url, params={"format": "json"}, follow_redirects=True
+            )
+            if response.status_code != 200:
+                raise ToolError(f"Squarespace collection returned HTTP {response.status_code}")
+            collections[collection_url] = json_object(response, "Squarespace collection")
+        payload = collections[collection_url]
+        products = payload.get("items")
+        if not isinstance(products, list):
+            raise ToolError("Squarespace collection omitted its products")
+        matches = [
+            product
+            for product in products
+            if isinstance(product, dict) and product.get("id") == item_id
+        ]
+        if len(matches) != 1 or not isinstance(matches[0].get("variants"), list):
+            raise ToolError("Squarespace ref no longer resolves to exactly one product")
+        variants = [
+            variant
+            for variant in matches[0]["variants"]
+            if isinstance(variant, dict) and variant.get("sku") == sku
+        ]
+        if len(variants) != 1 or not _available(variants[0]):
+            raise ToolError("Squarespace ref variant is not currently available")
     crumb = _cookie(http, "crumb")
     headers = {"X-CSRF-Token": crumb, "Add-To-Cart-Id": str(uuid.uuid4())}
     cart_token = None

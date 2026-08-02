@@ -726,7 +726,8 @@ def _quote_output(raw: dict[str, Any], lines: list[dict[str, Any]]) -> dict[str,
         title = cached.get("title") if isinstance(cached, dict) else None
         unit = selected.get("price") if isinstance(selected, dict) else _product_price(cached) if isinstance(cached, dict) else None
         output_lines.append(_omit({"title": title, "unit_price": unit, "quantity": line["quantity"], "line_total": unit * line["quantity"] if isinstance(unit, (int, float)) else None}))
-    options = raw.get("rates", raw.get("shipping_options", []))
+    rates = raw.get("rates")
+    options = rates if isinstance(rates, list) and rates else raw.get("shipping_options", [])
     return _omit({"currency": currency, "lines": output_lines, "subtotal": _amount(subtotal) if isinstance(subtotal, dict) else subtotal, "shipping_options": options})
 
 

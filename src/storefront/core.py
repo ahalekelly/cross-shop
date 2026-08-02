@@ -185,7 +185,7 @@ class Session:
 
     def ecwid_script(self, response: httpx.Response, store_id: str) -> RequestSpec:
         del response
-        return RequestSpec("https://app.ecwid.com/script.js", {store_id: ""})
+        return RequestSpec(f"https://app.ecwid.com/script.js?{store_id}")
 
     def ecwid_products(self, response: httpx.Response, store_id: str, token: str, query: str) -> RequestSpec:
         base = str(response.url).split(f"/{store_id}/initial-data", 1)[0]
@@ -502,8 +502,14 @@ def search_result(context: Any, query: str, items: list[dict[str, Any]]) -> dict
 
 def quote_outcome(context: Any, options: list[dict[str, Any]], subtotal: dict[str, str], *, no_quote_reason: str = "empty_rate_list") -> dict[str, Any]:
     rates = [{"option_id": item["id"], "title": item["title"], "amount": item["amount"]} for item in options if item.get("disposition") == "delivery"]
-    result: dict[str, Any] = {"kind": "quote" if rates else "empty", "operation": "quote", "platform": context.platform, "shipping_options": options, "rates": rates, "subtotal": subtotal, **_facts(context)}
-    if not rates:
+    fallback_ids = [
+        item["id"] for item in options if item.get("disposition") == "fallback"
+    ]
+    kind = "quote" if rates else "fallback" if fallback_ids else "empty"
+    result: dict[str, Any] = {"kind": kind, "operation": "quote", "platform": context.platform, "shipping_options": options, "rates": rates, "subtotal": subtotal, **_facts(context)}
+    if kind == "fallback":
+        result["fallback_rate_ids"] = fallback_ids
+    if kind == "empty":
         result["reason"] = no_quote_reason
     return result
 

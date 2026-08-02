@@ -12,6 +12,12 @@ from storefront.storage import DataStore
 from storefront.web_bot_auth import build_signer
 
 
+def test_shipped_vendor_seed_preserves_redirect_aliases() -> None:
+    seed = json.loads((Path(__file__).parents[2] / "vendors.seed.json").read_text())
+    assert seed["https://malcowallshop.com"]["api_origin"] == "https://holzbuchstaben.ch"
+    assert seed["https://mettleair.com"]["api_origin"] == "https://mettleairstore.com"
+
+
 def test_vendor_seed_import_and_merge(tmp_path: Path) -> None:
     data = DataStore(tmp_path)
     path = tmp_path / "import.json"

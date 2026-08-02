@@ -5,13 +5,40 @@ import json
 import httpx
 
 from storefront.adapters import bigcommerce, magento, shopify, squarespace, woocommerce
-from storefront.core import DetectedStore, MagentoDetectedStore, Session
+from storefront.core import (
+    DetectedStore,
+    MagentoDetectedStore,
+    Session,
+    WooCommerceQuote,
+    WooCommerceShipping,
+    money,
+    quote_outcome,
+    shipping_option,
+)
 
 DESTINATION = {"country": "US", "region": "CA", "city": "San Francisco", "address1": "747 Howard St", "postal_code": "94103"}
 
 
 def detected(platform: str) -> DetectedStore:
     return DetectedStore(origin="https://store.test", entry_url="https://store.test/", platform=platform, api_origin="https://store.test", evidence=("test",))
+
+
+def test_fallback_shipping_is_not_reported_as_empty_or_delivery() -> None:
+    option = shipping_option(
+        WooCommerceShipping(selected=True, tax=money(0, "USD")),
+        "carrier_fallback",
+        "Carrier fallback",
+        "fallback",
+        money(10, "USD"),
+    )
+    result = quote_outcome(
+        WooCommerceQuote(cart_totals={}, cleanup_status=204),
+        [option],
+        money(25, "USD"),
+    )
+    assert result["kind"] == "fallback"
+    assert result["fallback_rate_ids"] == ["carrier_fallback"]
+    assert result["rates"] == []
 
 
 def test_shopify_quote_many_uses_one_cart_with_all_quantities() -> None:
@@ -94,6 +121,13 @@ def test_bigcommerce_quote_many_sends_all_line_items() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal cart_body
+        if request.method == "GET":
+            product_id = 1 if request.url.path == "/a" else 2
+            html = (
+                f'<h1>Product {product_id}</h1><input name="product_id" value="{product_id}">'
+                '<script>var BCData = {"product_attributes":{"instock":true,"purchasable":true}};</script>'
+            )
+            return httpx.Response(200, text=html, request=request)
         if request.url.path == "/api/storefront/carts":
             cart_body = json.loads(request.content)
             return httpx.Response(200, headers=[("set-cookie", "SHOP_SESSION_TOKEN=session; Path=/"), ("set-cookie", "SF-CSRF-TOKEN=csrf; Path=/")], json={"id": "cart", "baseAmount": 30, "currency": {"code": "USD"}, "lineItems": {"physicalItems": [{"id": "line1", "productId": 1}, {"id": "line2", "productId": 2}]}}, request=request)
@@ -115,7 +149,17 @@ def test_squarespace_quote_many_repeats_adds_then_fetches_shipping_once() -> Non
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal shipping
         if request.method == "GET":
-            return httpx.Response(200, json={}, headers={"set-cookie": "crumb=token; Path=/"}, request=request)
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {"id": "1", "variants": [{"sku": "A", "unlimited": True}]},
+                        {"id": "2", "variants": [{"sku": "B", "qtyInStock": 1}]},
+                    ]
+                },
+                headers={"set-cookie": "crumb=token; Path=/"},
+                request=request,
+            )
         if request.url.path.endswith("/shopping-cart/entries"):
             adds.append(json.loads(request.content)["quantity"])
             return httpx.Response(200, json={"shoppingCart": {"cartToken": "cart"}}, request=request)
