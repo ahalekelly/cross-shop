@@ -64,8 +64,8 @@ class AliExpress:
         return {"kind": "search", "platform": self.platform, "items": items}
 
     def product(self, session: Session, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
-        del session, detection, destination
-        return item.get("cached") or api_error(self.platform, "product", "Affiliate product detail is unavailable; search again")
+        del session, detection, item, destination
+        return api_error(self.platform, "product", "Affiliate product detail is unavailable; search again")
 
     def quote(self, session: Session, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
         del session, detection, lines, destination

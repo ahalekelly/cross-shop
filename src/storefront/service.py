@@ -223,9 +223,27 @@ class Storefront:
     def quote(self, quotes: object, *, destination: object | None = None, redetect: bool = False, debug: bool = False) -> dict[str, Any]:
         jobs = _quote_entries(quotes)
         target = validate_destination(destination) if destination is not None else self.data.destination()
-        grouped = {str(index): [job] for index, job in enumerate(jobs)}
-        results = self._parallel(grouped, lambda key, values: self._quote_store(values[0], target, redetect, debug))
-        return {**_metadata(), "stores": [results[str(index)] for index in range(len(jobs))]}
+        grouped: dict[str, list[tuple[int, dict[str, Any], list[tuple[dict[str, Any], dict[str, Any]]]]]] = {}
+        for index, job in enumerate(jobs):
+            origin = url_origin(job["store"])
+            resolved = []
+            for line in job["lines"]:
+                item = self._resolve_item(line["item"])
+                if item["store"] != origin:
+                    raise ToolError(f"Quote item store {item['store']} does not match {origin}")
+                resolved.append((line, item))
+            grouped.setdefault(origin, []).append((index, job, resolved))
+        groups = self._parallel(
+            grouped,
+            lambda origin, values: self._quote_group(
+                origin, values, target, redetect, debug
+            ),
+        )
+        stores: list[dict[str, Any] | None] = [None] * len(jobs)
+        for origin in grouped:
+            for index, result in groups[origin]:
+                stores[index] = result
+        return {**_metadata(), "stores": stores}
 
     def images_for(self, handle: str, selection: str | None = None) -> list[str]:
         match = HANDLE.fullmatch(handle)
@@ -391,23 +409,62 @@ class Storefront:
         finally:
             session.close()
 
-    def _quote_store(self, job: dict[str, Any], destination: dict[str, str], redetect: bool, debug: bool) -> dict[str, Any]:
-        requested_origin = url_origin(job["store"])
-        resolved = []
-        for line in job["lines"]:
-            item = self._resolve_item(line["item"])
-            if item["store"] != requested_origin:
-                raise ToolError(f"Quote item store {item['store']} does not match {requested_origin}")
-            resolved.append((line, item))
-        session = self._session(requested_origin)
+    def _quote_group(
+        self,
+        origin: str,
+        jobs: list[tuple[int, dict[str, Any], list[tuple[dict[str, Any], dict[str, Any]]]]],
+        destination: dict[str, str],
+        redetect: bool,
+        debug: bool,
+    ) -> list[tuple[int, dict[str, Any]]]:
+        session = self._session(origin)
         try:
-            detection = self._detect(session, job["store"], redetect)
-            base = {"input": job, "store": requested_origin, "detection": public_detection(detection, debug)}
-            if not isinstance(detection, (DetectedStore, MagentoDetectedStore)):
-                return {**base, **api_error("unknown", "detect", detection.kind)}
-            if detection.platform == "shopify":
+            detection = self._detect(session, jobs[0][1]["store"], redetect)
+            if isinstance(detection, (DetectedStore, MagentoDetectedStore)) and detection.platform == "shopify":
                 session.signer = build_signer(self.web_bot_auth)
-            adapter = self.adapters[detection.platform]
+            results = []
+            for index, job, resolved in jobs:
+                session.client.cookies.clear()
+                results.append(
+                    (
+                        index,
+                        self._quote_entry(
+                            session, detection, job, resolved, destination, debug
+                        ),
+                    )
+                )
+            return results
+        except ToolError as error:
+            platform = detection.platform if isinstance(locals().get("detection"), (DetectedStore, MagentoDetectedStore)) else "unknown"
+            return [
+                (
+                    index,
+                    {
+                        "input": job,
+                        "store": origin,
+                        **api_error(platform, "quote", str(error)),
+                        **({"evidence": session.evidence} if debug else {}),
+                    },
+                )
+                for index, job, _ in jobs
+            ]
+        finally:
+            session.close()
+
+    def _quote_entry(
+        self,
+        session: Session,
+        detection: StorefrontDetection,
+        job: dict[str, Any],
+        resolved: list[tuple[dict[str, Any], dict[str, Any]]],
+        destination: dict[str, str],
+        debug: bool,
+    ) -> dict[str, Any]:
+        base = {"input": job, "store": url_origin(job["store"]), "detection": public_detection(detection, debug)}
+        if not isinstance(detection, (DetectedStore, MagentoDetectedStore)):
+            return {**base, **api_error("unknown", "detect", detection.kind)}
+        adapter = self.adapters[detection.platform]
+        try:
             lines = []
             for line, item in resolved:
                 cached = item.get("cached")
@@ -438,10 +495,7 @@ class Storefront:
                 return {**base, **raw, **({"evidence": session.evidence} if debug else {})}
             return {**base, "status": "ok", **_quote_output(raw, lines), **({"evidence": session.evidence} if debug else {})}
         except ToolError as error:
-            platform = detection.platform if isinstance(locals().get("detection"), (DetectedStore, MagentoDetectedStore)) else "unknown"
-            return {"input": job, "store": requested_origin, **api_error(platform, "quote", str(error)), **({"evidence": session.evidence} if debug else {})}
-        finally:
-            session.close()
+            return {**base, **api_error(detection.platform, "quote", str(error)), **({"evidence": session.evidence} if debug else {})}
 
     def _resolve_item(self, value: object) -> dict[str, Any]:
         if isinstance(value, dict):
@@ -453,7 +507,10 @@ class Storefront:
         if isinstance(value, str) and HANDLE.fullmatch(value):
             cached = self.data.resolve_handle(value)
             selected = cached.get("selected_variant")
+            variants = cached.get("variants", [])
             reference = selected.get("ref") if isinstance(selected, dict) else None
+            if reference is None and isinstance(variants, list) and len(variants) == 1 and isinstance(variants[0], dict):
+                reference = variants[0].get("ref")
             return {"store": cached["store"], "ref": reference, "url": cached.get("url"), "cached": cached}
         raise ToolError("Item must be a product-page URL, handle, or ref object")
 
@@ -593,12 +650,22 @@ def _normalize_variant(value: dict[str, Any], platform: str, origin: str) -> dic
         "url": canonical_url(url) if url else "", "available": value.get("available"),
         "name": name, "options": options, "ref": reference,
         "price": _amount(raw_price), "currency": raw_price.get("currency") if isinstance(raw_price, dict) else None,
-        "image_urls": images, **({"merchant_urls": value["merchant_urls"]} if isinstance(value.get("merchant_urls"), list) else {}),
+        "image_urls": images,
+        **({"lead": True} if value.get("lead") is True else {}),
+        **({"shipping_options": value["shipping_options"]} if isinstance(value.get("shipping_options"), list) else {}),
+        **({"merchant_urls": value["merchant_urls"]} if isinstance(value.get("merchant_urls"), list) else {}),
     }
 
 
 def _new_product(variant: dict[str, Any]) -> dict[str, Any]:
-    return {"title": variant["title"], "description": variant["description"], "url": variant["url"], "available": variant["available"], "image_urls": variant["image_urls"], "variants": [variant], "queries": [], **({"merchant_urls": variant["merchant_urls"]} if "merchant_urls" in variant else {})}
+    return {
+        "title": variant["title"], "description": variant["description"],
+        "url": variant["url"], "available": variant["available"],
+        "image_urls": variant["image_urls"], "variants": [variant], "queries": [],
+        **({"lead": True} if variant.get("lead") is True else {}),
+        **({"shipping_options": variant["shipping_options"]} if "shipping_options" in variant else {}),
+        **({"merchant_urls": variant["merchant_urls"]} if "merchant_urls" in variant else {}),
+    }
 
 
 def _append_variant(product: dict[str, Any], variant: dict[str, Any]) -> None:
@@ -635,7 +702,7 @@ def _search_output(
     multi = isinstance(store.get("input", {}).get("queries"), list)
     for index, product in enumerate(store["items"], 1):
         variants = product["variants"]
-        item = {"i": index, "title": product["title"], "price": _product_price(product), "available": product.get("available"), "url": product.get("url"), "description": description(product.get("description", ""), description_chars), "images": len(product.get("image_urls", [])) or None, "variants": [value["name"] for value in variants] if len(variants) > 1 else None, "queries": product.get("queries") if multi else None}
+        item = {"i": index, "title": product["title"], "price": _product_price(product), "available": product.get("available"), "url": product.get("url"), "description": description(product.get("description", ""), description_chars), "images": len(product.get("image_urls", [])) or None, "lead": product.get("lead"), "variants": [value["name"] for value in variants] if len(variants) > 1 else None, "queries": product.get("queries") if multi else None}
         items.append(_omit(item))
     return _omit({"s": store_index, "input": store["input"], "store": store["store"], "detection": store["detection"], "status": "ok", "currency": store.get("currency"), "items": items, "evidence": store.get("evidence") if debug else None})
 
@@ -646,7 +713,7 @@ def _product_output(product: dict[str, Any], handle: str, chars: int) -> dict[st
     for value in product["variants"]:
         variant = {"name": value["name"], "options": value.get("options"), "price": value.get("price") if value.get("price") != product_price else None, "available": value.get("available"), "ref": value["ref"]}
         variants.append(_omit(variant))
-    return _omit({"handle": handle, "title": product["title"], "description": description(product.get("description", ""), chars), "price": product_price, "available": product.get("available"), "images": len(product.get("image_urls", [])) or None, "url": product.get("url"), "variants": variants})
+    return _omit({"handle": handle, "title": product["title"], "description": description(product.get("description", ""), chars), "price": product_price, "available": product.get("available"), "images": len(product.get("image_urls", [])) or None, "url": product.get("url"), "variants": variants, "shipping_options": product.get("shipping_options")})
 
 
 def _quote_output(raw: dict[str, Any], lines: list[dict[str, Any]]) -> dict[str, Any]:
