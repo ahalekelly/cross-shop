@@ -7,7 +7,7 @@ import hmac
 import json
 import os
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from zoneinfo import ZoneInfo
 
 from storefront.core import (
@@ -19,6 +19,7 @@ from storefront.core import (
     json_object,
     minor_money,
     money,
+    url_origin,
 )
 
 ALIEXPRESS_URL = "https://api.taobao.com/router/rest"
@@ -42,6 +43,20 @@ def _ships_to(destination: dict[str, str]) -> dict[str, str]:
         for key in ("country", "region", "postal_code")
         if key in destination
     }
+
+
+def _https_url(value: object, context: str) -> str:
+    if not isinstance(value, str):
+        raise ToolError(f"{context} must be a string")
+    parts = urlsplit(value)
+    if (
+        parts.scheme != "https"
+        or not parts.hostname
+        or parts.username is not None
+        or parts.password is not None
+    ):
+        raise ToolError(f"{context} must be absolute HTTPS without credentials")
+    return value
 
 
 def _ucp_money(value: object) -> dict[str, str]:
@@ -90,7 +105,18 @@ class AliExpress:
         if response.status_code != 200 or "error_response" in payload:
             return api_error(self.platform, "search", "AliExpress Affiliate API rejected the search", response.status_code)
         try:
-            products = payload["aliexpress_affiliate_product_query_response"]["resp_result"]["result"]["products"]["product"]
+            result = payload["aliexpress_affiliate_product_query_response"]["resp_result"]
+            response_code = result["resp_code"]
+        except (KeyError, TypeError) as error:
+            raise ToolError("AliExpress response omitted resp_result") from error
+        if response_code != 200:
+            return api_error(
+                self.platform,
+                "search",
+                f"AliExpress Affiliate API returned response code {response_code!r}",
+            )
+        try:
+            products = result["result"]["products"]["product"]
         except (KeyError, TypeError) as error:
             raise ToolError("AliExpress response omitted its products") from error
         if not isinstance(products, list):
@@ -102,11 +128,18 @@ class AliExpress:
             product_id = str(product.get("product_id", ""))
             title = product.get("product_title")
             url = product.get("product_detail_url")
-            if not product_id.isdecimal() or not isinstance(title, str) or not isinstance(url, str):
+            if not product_id.isdecimal() or not isinstance(title, str) or not title:
                 raise ToolError("AliExpress product has invalid identity fields")
+            product_url = _https_url(url, "AliExpress product URL")
+            price = product.get("target_sale_price")
+            currency = product.get("target_sale_price_currency")
+            if not isinstance(price, str) or currency != "USD":
+                raise ToolError("AliExpress product requires a USD decimal target price")
+            image = product.get("product_main_image_url")
+            images = [_https_url(image, "AliExpress product image")] if image is not None else []
             items.append({
-                "title": title, "price": money(product.get("target_sale_price"), product.get("target_sale_price_currency")),
-                "product_url": url, "image_urls": [product["product_main_image_url"]] if isinstance(product.get("product_main_image_url"), str) else [],
+                "title": title, "price": money(price, currency),
+                "product_url": product_url, "image_urls": images,
                 "item_ref": item_ref(self.platform, {"product_id": product_id}), "lead": True,
             })
         return {"kind": "search", "platform": self.platform, "items": items}
@@ -135,25 +168,38 @@ class SerpApi:
         response = session.request("GET", SERPAPI_URL, params=params)
         payload = json_object(response, "SerpApi search")
         if response.status_code != 200 or "error" in payload:
-            return api_error(self.platform, "search", str(payload.get("error", "SerpApi rejected the search")), response.status_code)
+            provider_error = str(payload.get("error", "SerpApi rejected the search"))
+            reason = provider_error.replace(key, "[redacted]")
+            return api_error(self.platform, "search", reason, response.status_code)
         metadata = payload.get("search_metadata")
         if not isinstance(metadata, dict) or metadata.get("status") != "Success":
             raise ToolError("SerpApi search did not report Success")
-        raw = payload.get("shopping_results", payload.get("inline_shopping_results", [])) if self.engine == "google_shopping" else payload.get("organic_results", [])
+        if self.engine == "google_shopping":
+            layouts = [
+                payload[key]
+                for key in ("shopping_results", "inline_shopping_results")
+                if key in payload
+            ]
+            if len(layouts) > 1:
+                raise ToolError("SerpApi returned ambiguous shopping result layouts")
+            raw = layouts[0] if layouts else []
+        else:
+            raw = payload.get("organic_results", [])
         if not isinstance(raw, list):
             raise ToolError("SerpApi results must be an array")
         items = [self._item(value) for value in raw[:limit]]
         return {"kind": "search", "platform": self.platform, "items": items}
 
     def _item(self, value: object) -> dict[str, Any]:
-        if not isinstance(value, dict) or not isinstance(value.get("title"), str):
+        if not isinstance(value, dict) or not isinstance(value.get("title"), str) or not value["title"]:
             raise ToolError("SerpApi result requires a title")
-        url = value.get("direct_link") or value.get("link_clean") or value.get("link") or value.get("product_link")
-        if not isinstance(url, str):
-            raise ToolError("SerpApi result requires a merchant URL")
+        url = _https_url(
+            value.get("direct_link") or value.get("link_clean") or value.get("link") or value.get("product_link"),
+            "SerpApi merchant URL",
+        )
         price = value.get("extracted_price")
-        if price is None:
-            raise ToolError("SerpApi result requires extracted_price")
+        if isinstance(price, bool) or not isinstance(price, (int, float)) or price < 0:
+            raise ToolError("SerpApi result requires numeric extracted_price")
         if self.engine == "amazon":
             asin = value.get("asin")
             if not isinstance(asin, str):
@@ -164,7 +210,9 @@ class SerpApi:
             if not product_id:
                 raise ToolError("SerpApi Shopping result requires product_id or position")
             reference = item_ref(self.platform, {"product_id": product_id, "merchant_url": url})
-        return {"title": value["title"], "price": money(price, "USD"), "product_url": url, "image_urls": [value["thumbnail"]] if isinstance(value.get("thumbnail"), str) else [], "item_ref": reference, "lead": True}
+        thumbnail = value.get("thumbnail")
+        images = [_https_url(thumbnail, "SerpApi thumbnail")] if thumbnail is not None else []
+        return {"title": value["title"], "price": money(price, "USD"), "product_url": url, "image_urls": images, "item_ref": reference, "lead": True}
 
     def product(self, session: Session, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
         del session, detection, destination
@@ -302,6 +350,20 @@ class ShopifyGlobal:
         structured = result.get("structuredContent", result)
         if not isinstance(structured, dict):
             raise ToolError("Shopify Global Catalog result must be an object")
+        ucp = structured.get("ucp")
+        if isinstance(ucp, dict) and ucp.get("status") == "error":
+            messages = structured.get("messages", [])
+            reason = "Shopify Global Catalog returned a UCP application error"
+            if isinstance(messages, list):
+                values = [
+                    message.get("content")
+                    for message in messages
+                    if isinstance(message, dict)
+                    and isinstance(message.get("content"), str)
+                ]
+                if values:
+                    reason += ": " + "; ".join(values)
+            return api_error(self.platform, name, reason)
         return structured
 
     def search(self, session: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
@@ -354,7 +416,6 @@ class ShopifyGlobal:
         product_url = value.get("url")
         if not isinstance(product_url, str):
             raise ToolError("Shopify Global Catalog product omitted its merchant URL")
-        merchant_urls = [product_url]
         items = []
         for variant in variants:
             if (
@@ -364,8 +425,24 @@ class ShopifyGlobal:
             ):
                 raise ToolError("Shopify Global Catalog variant has invalid identity")
             seller = variant.get("seller")
-            if isinstance(seller, dict) and isinstance(seller.get("url"), str):
-                merchant_urls.append(seller["url"])
+            if (
+                not isinstance(seller, dict)
+                or not isinstance(seller.get("url"), str)
+                or not isinstance(seller.get("domain"), str)
+            ):
+                raise ToolError(
+                    "Shopify Global Catalog variant omitted seller URL or domain"
+                )
+            seller_url = seller["url"]
+            api_origin = "https://" + seller["domain"]
+            variant_url = variant.get("url")
+            checkout_url = variant.get("checkout_url")
+            if variant_url is not None and not isinstance(variant_url, str):
+                raise ToolError("Shopify Global Catalog variant URL must be a string")
+            if checkout_url is not None and not isinstance(checkout_url, str):
+                raise ToolError(
+                    "Shopify Global Catalog checkout URL must be a string"
+                )
             availability = variant.get("availability")
             if not isinstance(availability, dict) or not isinstance(availability.get("available"), bool):
                 raise ToolError("Shopify Global Catalog variant omitted availability")
@@ -374,16 +451,18 @@ class ShopifyGlobal:
                 raise ToolError("Shopify Global Catalog variant options must be an array")
             items.append({
                 "title": value["title"], "description": text,
-                "price": _ucp_money(variant.get("price")), "product_url": product_url,
+                "price": _ucp_money(variant.get("price")),
+                "product_url": variant_url or seller_url,
                 "image_urls": images, "available": availability["available"],
                 "variant": variant["title"], "options": options,
                 "item_ref": item_ref(self.platform, {"product_id": product_id, "variant_id": variant["id"]}),
-                "merchant_urls": list(dict.fromkeys(merchant_urls)),
+                "seller_url": seller_url,
+                "seller_domain": seller["domain"],
+                "variant_url": variant_url,
+                "checkout_url": checkout_url,
+                "merchant_stores": [{"url": seller_url, "api_origin": api_origin}],
             })
         if items:
-            merchant_urls = list(dict.fromkeys(merchant_urls))
-            for item in items:
-                item["merchant_urls"] = merchant_urls
             return items
         price_range = value.get("price_range")
         if not isinstance(price_range, dict):
@@ -394,7 +473,7 @@ class ShopifyGlobal:
             "max_price": _ucp_money(price_range.get("max", price_range.get("min"))),
             "product_url": product_url, "image_urls": images,
             "item_ref": item_ref(self.platform, {"product_id": product_id}),
-            "merchant_urls": merchant_urls,
+            "merchant_stores": [{"url": product_url, "api_origin": url_origin(product_url)}],
         }]
 
     def product(self, session: Session, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:

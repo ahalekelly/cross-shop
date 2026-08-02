@@ -188,7 +188,20 @@ def quote_many(
         cart = added.get("shoppingCart")
         if response.status_code != 200 or not isinstance(cart, dict) or not isinstance(cart.get("cartToken"), str):
             raise ToolError("Squarespace cart add omitted its cart token")
-        cart_token = cart["cartToken"]
+        returned_token = cart["cartToken"]
+        if cart_token is not None and returned_token != cart_token:
+            raise ToolError("Squarespace cart token changed across line additions")
+        added_line = added.get("newlyAdded")
+        chosen = added_line.get("chosenVariant") if isinstance(added_line, dict) else None
+        if (
+            not isinstance(added_line, dict)
+            or added_line.get("itemId") != item_id
+            or not isinstance(chosen, dict)
+            or chosen.get("sku") != sku
+            or added_line.get("quantity") != quantity
+        ):
+            raise ToolError("Squarespace cart add did not confirm the requested line")
+        cart_token = returned_token
     if cart_token is None:
         raise AssertionError("quote_many requires lines")
     shipping_response = http.request(

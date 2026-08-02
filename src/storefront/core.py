@@ -81,6 +81,7 @@ class RequestSpec:
     url: str
     params: dict[str, str] | None = None
     follow_redirects: bool = False
+    allowed_redirect_origins: tuple[str, ...] | None = None
 
 
 class Session:
@@ -112,7 +113,25 @@ class Session:
 
     def get(self, target: str | RequestSpec) -> httpx.Response:
         spec = target if isinstance(target, RequestSpec) else RequestSpec(target)
-        return self.request("GET", spec.url, params=spec.params, follow_redirects=spec.follow_redirects)
+        if spec.allowed_redirect_origins is None:
+            return self.request(
+                "GET",
+                spec.url,
+                params=spec.params,
+                follow_redirects=spec.follow_redirects,
+            )
+        response = self.request("GET", spec.url, params=spec.params)
+        for _ in range(5):
+            if response.status_code not in {301, 302, 303, 307, 308}:
+                return response
+            location = response.headers.get("location")
+            if not location:
+                raise ToolError("Storefront redirect has no Location header")
+            target_url = urljoin(str(response.url), location)
+            if url_origin(target_url) not in spec.allowed_redirect_origins:
+                raise ToolError("Storefront redirect left the allowed storefront origins")
+            response = self.request("GET", target_url)
+        raise ToolError("Storefront entry exceeded five redirects")
 
     def send_signed(
         self,
@@ -140,8 +159,11 @@ class Session:
         return response
 
     def storefront_entry(self, url: str, entry_origins: list[str]) -> RequestSpec:
-        del entry_origins
-        return RequestSpec(normalize_store_url(url), follow_redirects=True)
+        allowed = tuple(url_origin(origin) for origin in entry_origins)
+        normalized = normalize_store_url(url)
+        if url_origin(normalized) not in allowed:
+            raise ToolError("Storefront entry is outside the allowed storefront origins")
+        return RequestSpec(normalized, allowed_redirect_origins=allowed)
 
     def storefront_entry_replay(self, response: httpx.Response) -> RequestSpec:
         return RequestSpec(canonical_url(str(response.url)))
@@ -219,7 +241,11 @@ def url_origin(value: str) -> str:
 
 def canonical_url(value: str) -> str:
     parts = urlsplit(value if "://" in value else f"https://{value}")
-    return normalize_store_url(urlunsplit((parts.scheme, parts.netloc, parts.path or "/", "", "")))
+    if parts.query or parts.fragment:
+        raise ToolError("canonical URL must not contain a query or fragment")
+    return normalize_store_url(
+        urlunsplit((parts.scheme, parts.netloc, parts.path or "/", "", ""))
+    )
 
 
 def redact_url(value: str) -> str:
@@ -415,7 +441,7 @@ def api_error(platform: str, stage: str, reason: str, http_status: int | None = 
 def wall_system(response: httpx.Response) -> str | None:
     body = response.text[:200_000].casefold()
     headers = " ".join(f"{key}:{value}" for key, value in response.headers.items()).casefold()
-    markers = (("cloudflare", ("cf-ray", "cloudflare", "just a moment")), ("akamai", ("akamai", "reference #")), ("datadome", ("datadome",)), ("captcha", ("captcha", "verify you are human")))
+    markers = (("cloudflare", ("cf-ray", "cloudflare", "just a moment", "/cdn-cgi/challenge-platform")), ("akamai", ("akamai", "reference #")), ("datadome", ("datadome",)), ("captcha", ("captcha", "verify you are human")))
     for name, values in markers:
         if any(value in body or value in headers for value in values):
             return name

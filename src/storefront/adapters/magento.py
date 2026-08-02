@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import re
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import quote as url_quote
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urljoin, urlsplit, urlunsplit
 
 import httpx
 from storefront.core import (
@@ -423,7 +423,11 @@ def quote_many(
         if response.status_code not in {200, 201}:
             raise ToolError(f"Magento rejected SKU {sku!r} with HTTP {response.status_code}")
         added = json_object(response, "Magento add item")
-        if added.get("sku") != sku or Decimal(str(added.get("qty"))) != quantity:
+        try:
+            added_quantity = Decimal(str(added.get("qty")))
+        except InvalidOperation as error:
+            raise ToolError("Magento add item returned an invalid quantity") from error
+        if added.get("sku") != sku or added_quantity != quantity:
             raise ToolError("Magento add item did not return the selected SKU and quantity")
         added_items.append({"sku": sku, "title": added.get("name"), "quantity": quantity})
     totals_response = http.request("GET", origin + cart_path + "/totals")
@@ -847,7 +851,7 @@ def _html_search(
             continue
         if url_origin(candidate) == detection.origin and candidate not in product_urls:
             product_urls.add(candidate)
-            links.append((candidate, href))
+            links.append((candidate, candidate))
         if len(links) == MAX_SEARCH_RESULTS:
             break
 
@@ -1023,7 +1027,12 @@ def _unique_skus(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _canonical_product_url(value: str) -> str | None:
     parts = urlsplit(value)
-    if parts.scheme != "https" or not parts.hostname:
+    if parts.scheme != "https" or not parts.hostname or parts.fragment:
+        return None
+    if any(
+        key.casefold() != "tracking"
+        for key, _ in parse_qsl(parts.query, keep_blank_values=True)
+    ):
         return None
     return canonical_url(
         urlunsplit((parts.scheme, parts.netloc, parts.path or "/", "", ""))

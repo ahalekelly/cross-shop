@@ -108,29 +108,77 @@ def quote_many(
         raise ToolError("WooCommerce cart response has no Cart-Token")
     headers = {"Cart-Token": token}
     item_keys = []
-    for product_id, quantity in selected_lines:
-        response = http.request("POST", f"{base}/cart/add-item", headers=headers, json={"id": product_id, "quantity": quantity})
-        terminal = _terminal_response("quote", response)
-        if terminal is not None:
-            return terminal
-        item_keys.append(_selected_item_key(json_object(response, "WooCommerce add item"), product_id))
-
-    update_response = http.request(
-        "POST", f"{base}/cart/update-customer", headers=headers,
-        json={"shipping_address": destination_for("woocommerce", destination)},
-    )
-    terminal = _terminal_response("quote", update_response)
-    if terminal is not None:
-        return terminal
-    updated_cart = json_object(update_response, "WooCommerce customer update")
-    subtotal, totals = _cart_totals(updated_cart, "WooCommerce customer update")
-    options = _shipping_options(updated_cart, subtotal["currency"])
-    cleanup_statuses = [
-        http.request("DELETE", f"{base}/cart/items/{item_key}", headers=headers).status_code
-        for item_key in item_keys
-    ]
+    clear_cart = False
+    result: dict[str, object] | None = None
+    quote_data: tuple[dict[str, str], dict[str, Any], list[dict[str, Any]]] | None = None
+    try:
+        for product_id, quantity in selected_lines:
+            response = http.request(
+                "POST",
+                f"{base}/cart/add-item",
+                headers=headers,
+                json={"id": product_id, "quantity": quantity},
+            )
+            terminal = _terminal_response("quote", response)
+            if terminal is not None:
+                result = terminal
+                break
+            clear_cart = True
+            item_keys.append(
+                _selected_item_key(
+                    json_object(response, "WooCommerce add item"), product_id
+                )
+            )
+            clear_cart = False
+        if result is None:
+            update_response = http.request(
+                "POST",
+                f"{base}/cart/update-customer",
+                headers=headers,
+                json={
+                    "shipping_address": destination_for(
+                        "woocommerce", destination
+                    )
+                },
+            )
+            terminal = _terminal_response("quote", update_response)
+            if terminal is not None:
+                result = terminal
+            else:
+                updated_cart = json_object(
+                    update_response, "WooCommerce customer update"
+                )
+                subtotal, totals = _cart_totals(
+                    updated_cart, "WooCommerce customer update"
+                )
+                quote_data = (
+                    subtotal,
+                    totals,
+                    _shipping_options(updated_cart, subtotal["currency"]),
+                )
+    finally:
+        cleanup_statuses = [
+            http.request(
+                "DELETE", f"{base}/cart/items/{item_key}", headers=headers
+            ).status_code
+            for item_key in item_keys
+        ]
+        if clear_cart or any(status not in {200, 204} for status in cleanup_statuses):
+            clear_status = http.request(
+                "DELETE", f"{base}/cart/items", headers=headers
+            ).status_code
+            if clear_status not in {200, 204}:
+                raise ToolError(
+                    "WooCommerce cart cleanup failed; anonymous cart may contain partial state"
+                )
+    if result is not None:
+        return result
+    if quote_data is None:
+        raise AssertionError("WooCommerce quote must produce data or a terminal result")
+    subtotal, totals, options = quote_data
+    cleanup_status = max(cleanup_statuses, default=204)
     return quote_outcome(
-        WooCommerceQuote(cart_totals=totals, cleanup_status=max(cleanup_statuses)),
+        WooCommerceQuote(cart_totals=totals, cleanup_status=cleanup_status),
         options,
         subtotal,
     )

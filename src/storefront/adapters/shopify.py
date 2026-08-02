@@ -20,10 +20,12 @@ from storefront.core import (
     gated,
     item_ref,
     json_object,
+    minor_money,
     money,
     quote_outcome,
     search_result,
     shipping_option,
+    url_origin,
     wall_system,
 )
 
@@ -202,6 +204,101 @@ def product_detail(
         variant_id,
         [_product_item(detection, product, value) for value in nodes],
     )
+
+
+def product_url_detail(
+    http: Http, detection: DetectedStore, product_url: str
+) -> dict[str, object]:
+    parts = urlsplit(product_url)
+    match = re.fullmatch(r"/products/([^/]+)", parts.path.rstrip("/"))
+    if (
+        detection.platform != "shopify"
+        or url_origin(product_url) != detection.origin
+        or match is None
+    ):
+        return api_error(
+            "shopify", "product", "Shopify product URL must be /products/<handle>"
+        )
+    handle = match.group(1)
+    response = http.request("GET", f"{detection.origin}/products/{handle}.js")
+    terminal = _terminal_response("product", response)
+    if terminal is not None:
+        return terminal
+    payload = json_object(response, "Shopify Ajax product detail")
+    if payload.get("handle") != handle:
+        return api_error(
+            "shopify", "product", "Shopify product endpoint returned another handle"
+        )
+    currency = payload.get("currency")
+    if currency is None:
+        cart = http.request("GET", detection.origin + "/cart.js")
+        terminal = _terminal_response("product", cart)
+        if terminal is not None:
+            return terminal
+        currency = json_object(cart, "Shopify Ajax cart").get("currency")
+    if not isinstance(currency, str) or not currency:
+        raise ToolError("Shopify Ajax product detail omitted storefront currency")
+    title = payload.get("title")
+    variants = payload.get("variants")
+    images = payload.get("images", [])
+    options = payload.get("options", [])
+    if (
+        not isinstance(title, str)
+        or not isinstance(variants, list)
+        or not isinstance(images, list)
+        or not isinstance(options, list)
+    ):
+        raise ToolError("Shopify Ajax product detail has an invalid product shape")
+    items = [
+        _ajax_product_item(
+            detection, payload, variant, options, images, currency, product_url
+        )
+        for variant in variants
+    ]
+    return search_result(ShopifySearch(), handle, items)
+
+
+def _ajax_product_item(
+    detection: DetectedStore,
+    product: dict[str, Any],
+    variant: object,
+    options: list[Any],
+    images: list[Any],
+    currency: str,
+    product_url: str,
+) -> dict[str, Any]:
+    if not isinstance(variant, dict):
+        raise ToolError("Shopify Ajax variant must be an object")
+    variant_id, price = variant.get("id"), variant.get("price")
+    if type(variant_id) is not int or type(price) is not int:
+        raise ToolError("Shopify Ajax variant requires integer id and price")
+    selected_options = []
+    for index, option in enumerate(options, 1):
+        if not isinstance(option, dict) or not isinstance(option.get("name"), str):
+            raise ToolError("Shopify Ajax product option must contain a name")
+        value = variant.get(f"option{index}")
+        if not isinstance(value, str):
+            raise ToolError("Shopify Ajax variant omitted an option value")
+        selected_options.append({"name": option["name"], "value": value})
+    image_urls = [value for value in images if isinstance(value, str)]
+    item = {
+        "name": product["title"],
+        "description": product.get("description", ""),
+        "image_urls": image_urls,
+        "options": selected_options,
+        "variant": variant.get("title"),
+        "sku": variant.get("sku"),
+        "available": variant.get("available"),
+        "price": minor_money(str(price), currency, 2),
+        "product_url": product_url,
+        "item_ref": item_ref(
+            "shopify", {"variant_id": f"gid://shopify/ProductVariant/{variant_id}"}
+        ),
+    }
+    compare_at = variant.get("compare_at_price")
+    if type(compare_at) is int:
+        item["compare_at_price"] = minor_money(str(compare_at), currency, 2)
+    return item
 
 
 def quote(http: Http, detection: DetectedStore, reference: object) -> dict[str, object]:

@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 
 import httpx
+import pytest
 
 from storefront.adapters import bigcommerce, magento, shopify, squarespace, woocommerce
 from storefront.core import (
     DetectedStore,
     MagentoDetectedStore,
     Session,
+    ToolError,
     WooCommerceQuote,
     WooCommerceShipping,
     money,
@@ -161,8 +163,9 @@ def test_squarespace_quote_many_repeats_adds_then_fetches_shipping_once() -> Non
                 request=request,
             )
         if request.url.path.endswith("/shopping-cart/entries"):
-            adds.append(json.loads(request.content)["quantity"])
-            return httpx.Response(200, json={"shoppingCart": {"cartToken": "cart"}}, request=request)
+            body = json.loads(request.content)
+            adds.append(body["quantity"])
+            return httpx.Response(200, json={"newlyAdded": {"itemId": body["itemId"], "chosenVariant": {"sku": body["sku"]}, "quantity": body["quantity"]}, "shoppingCart": {"cartToken": "cart"}}, request=request)
         shipping += 1
         return httpx.Response(200, json={"shippingOptionsStatus": "APPLICABLE_SHIPPING_OPTIONS", "subtotal": {"decimalValue": "30", "currencyCode": "USD"}, "fulfillmentOptions": [{"key": "ground", "name": "Ground", "isPickup": False, "price": {"decimalValue": "5", "currencyCode": "USD"}}]}, request=request)
 
@@ -174,3 +177,63 @@ def test_squarespace_quote_many_repeats_adds_then_fetches_shipping_once() -> Non
     assert adds == [2, 1]
     assert shipping == 1
     assert result["kind"] == "quote"
+
+
+def test_woocommerce_failed_second_add_cleans_first_line() -> None:
+    added = 0
+    deleted: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal added
+        if request.method == "GET":
+            return httpx.Response(200, json={"totals": {"currency_code": "USD", "currency_minor_unit": 2, "total_items": "0"}}, headers={"Cart-Token": "token"}, request=request)
+        if request.url.path.endswith("/add-item"):
+            added += 1
+            if added == 2:
+                return httpx.Response(500, request=request)
+            body = json.loads(request.content)
+            return httpx.Response(200, json={"items": [{"id": body["id"], "key": "first-key"}]}, request=request)
+        if request.method == "DELETE":
+            deleted.append(request.url.path)
+            return httpx.Response(204, request=request)
+        raise AssertionError(request.url)
+
+    lines = [
+        {"ref": {"platform": "woocommerce", "store": "https://store.test", "product_id": 1, "product_type": "simple", "minimum": 1}, "quantity": 1},
+        {"ref": {"platform": "woocommerce", "store": "https://store.test", "product_id": 2, "product_type": "simple", "minimum": 1}, "quantity": 1},
+    ]
+    with pytest.raises(ToolError, match="HTTP 500"):
+        woocommerce.quote_many(
+            Session(httpx.MockTransport(handler)),
+            detected("woocommerce"),
+            lines,
+            DESTINATION,
+        )
+
+    assert deleted == ["/wp-json/wc/store/v1/cart/items/first-key"]
+
+
+def test_squarespace_rejects_cart_token_changes_between_adds() -> None:
+    adds = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal adds
+        if request.method == "GET":
+            return httpx.Response(200, json={"items": [{"id": "1", "variants": [{"sku": "A", "unlimited": True}]}, {"id": "2", "variants": [{"sku": "B", "unlimited": True}]}]}, headers={"set-cookie": "crumb=token; Path=/"}, request=request)
+        if request.url.path.endswith("/shopping-cart/entries"):
+            adds += 1
+            body = json.loads(request.content)
+            return httpx.Response(200, json={"newlyAdded": {"itemId": body["itemId"], "chosenVariant": {"sku": body["sku"]}, "quantity": body["quantity"]}, "shoppingCart": {"cartToken": f"cart-{adds}"}}, request=request)
+        raise AssertionError(request.url)
+
+    lines = [
+        {"ref": {"platform": "squarespace", "store": "https://store.test", "collection_url": "https://store.test/shop", "item_id": "1", "sku": "A"}, "quantity": 1},
+        {"ref": {"platform": "squarespace", "store": "https://store.test", "collection_url": "https://store.test/shop", "item_id": "2", "sku": "B"}, "quantity": 1},
+    ]
+    with pytest.raises(ToolError, match="token changed"):
+        squarespace.quote_many(
+            Session(httpx.MockTransport(handler)),
+            detected("squarespace"),
+            lines,
+            DESTINATION,
+        )

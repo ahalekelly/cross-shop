@@ -100,8 +100,17 @@ class DataStore:
     def load_run(self, run_id: str) -> dict[str, Any]:
         path = self.runs / f"{run_id}.json"
         value = self._read(path, None)
-        if not isinstance(value, dict):
+        created = value.get("created_at") if isinstance(value, dict) else None
+        if not isinstance(created, str):
             raise ToolError(f"Run {run_id} is unavailable; re-run search")
+        try:
+            created_at = datetime.fromisoformat(created)
+        except ValueError as error:
+            raise ToolError(f"Run {run_id} is invalid") from error
+        if created_at.tzinfo is None:
+            raise ToolError(f"Run {run_id} is invalid")
+        if created_at < datetime.now(UTC) - timedelta(days=7):
+            raise ToolError(f"Run {run_id} expired; re-run search")
         return value
 
     def resolve_handle(self, handle: str) -> dict[str, Any]:

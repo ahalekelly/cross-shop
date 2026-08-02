@@ -76,7 +76,15 @@ def _config(data: DataStore, args: argparse.Namespace) -> dict[str, Any]:
         data.set_destination(_json(args.destination, "destination"))
         return {"destination": data.destination()}
     if args.config_command == "show":
-        return {**data.settings(), "destination": data.destination(), "data_dir": str(data.root)}
+        settings = data.settings()
+        return {
+            "destination": data.destination(),
+            "data_dir": str(data.root),
+            "credentials": {
+                key: isinstance(settings.get(key), dict)
+                for key in ("ebay", "shopify_global", "web_bot_auth")
+            },
+        }
     if args.config_command == "import-vendors":
         return {"imported": data.import_vendors(args.path), "path": str(args.path)}
     raise AssertionError(args.config_command)

@@ -153,7 +153,7 @@ class WooCommerceTests(unittest.TestCase):
         with self.assertRaisesRegex(ToolError, "exact selected product"):
             woocommerce._selected_item_key(cart, 1)
 
-    def test_quote_keeps_tax_and_fallback_distinct_and_cleanup_nonfatal(self) -> None:
+    def test_quote_reports_cleanup_failure_instead_of_leaving_partial_state(self) -> None:
         seen: list[tuple[str, str]] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -216,22 +216,16 @@ class WooCommerceTests(unittest.TestCase):
             "woocommerce",
             {"product_id": 19251, "product_type": "simple", "minimum": 1},
         )
-        result = woocommerce.quote(
-            Http(httpx.MockTransport(handler)), detection(), reference
-        )
-        self.assertEqual(result["kind"], "fallback")
-        self.assertEqual(result["fallback_rate_ids"], ["wf_shipping_ups_fallback"])
-        self.assertEqual(result["rates"], [])
+        with self.assertRaisesRegex(ToolError, "cart cleanup failed"):
+            woocommerce.quote(
+                Http(httpx.MockTransport(handler)), detection(), reference
+            )
         self.assertEqual(
-            result["shipping_options"][0]["tax"], {"amount": "1.25", "currency": "USD"}
-        )
-        self.assertEqual(result["shipping_options"][1]["disposition"], "pickup")
-        self.assertEqual(
-            result["cart_totals"]["total_tax"], {"amount": "2.93", "currency": "USD"}
-        )
-        self.assertEqual(result["cleanup_status"], 403)
-        self.assertEqual(
-            seen[-1], ("DELETE", "/wp-json/wc/store/v1/cart/items/item-secret")
+            seen[-2:],
+            [
+                ("DELETE", "/wp-json/wc/store/v1/cart/items/item-secret"),
+                ("DELETE", "/wp-json/wc/store/v1/cart/items"),
+            ],
         )
 
     def test_variable_parent_is_not_a_durable_exact_ref(self) -> None:

@@ -28,6 +28,8 @@
               "id": "gid://shopify/ProductVariant/1",
               "title": "Black / 10",
               "price": {"amount": 4000, "currency": "USD"},
+              "url": "https://merchant.test/products/trail-boot?variant=1",
+              "checkout_url": "https://merchant.test/cart/1:1",
               "availability": {"available": true},
               "options": [
                 {"name": "Color", "label": "Black"},
@@ -35,14 +37,16 @@
               ],
               "seller": {
                 "name": "Merchant",
-                "domain": "merchant.test",
+                "domain": "merchant-api.myshopify.com",
                 "url": "https://merchant.test"
               }
             },
             {
               "id": "gid://shopify/ProductVariant/2",
               "title": "Brown / 11",
-              "price": {"amount": 4500, "currency": "USD"},
+              "price": {"amount": 4500, "currency": "EUR"},
+              "url": "https://other-merchant.test/products/trail-boot?variant=2",
+              "checkout_url": "https://other-merchant.test/cart/2:1",
               "availability": {"available": false},
               "options": [
                 {"name": "Color", "label": "Brown"},
@@ -50,7 +54,7 @@
               ],
               "seller": {
                 "name": "Second Merchant",
-                "domain": "other-merchant.test",
+                "domain": "other-api.myshopify.com",
                 "url": "https://other-merchant.test"
               }
             }

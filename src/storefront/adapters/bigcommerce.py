@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import quote as url_quote
-from urllib.parse import unquote, urljoin
+from urllib.parse import parse_qsl, unquote, urljoin, urlsplit, urlunsplit
 
 import httpx
 from storefront.core import (
@@ -192,14 +192,17 @@ def search(http: Http, detection: DetectedStore, query: str) -> dict[str, object
     ranked: dict[str, tuple[int, int, str]] = {}
     for index, link in enumerate(parser.links):
         try:
-            url = canonical_url(urljoin(str(response.url), link.href))
+            product_reference = _search_product_url(
+                urljoin(str(response.url), link.href)
+            )
+            url = canonical_url(product_reference)
         except ToolError:
             continue
         if url_origin(url) != detection.origin:
             continue
         rank = _rank(query, link)
         if url not in ranked or rank < ranked[url][0]:
-            ranked[url] = (rank, index, link.href)
+            ranked[url] = (rank, index, product_reference)
 
     items: list[dict[str, Any]] = []
     for url, (_, _, raw_href) in sorted(
@@ -450,6 +453,18 @@ def quote(http: Http, detection: DetectedStore, reference: object) -> dict[str, 
         subtotal,
         no_quote_reason="empty_rate_list",
     )
+
+
+def _search_product_url(value: str) -> str:
+    parts = urlsplit(value)
+    query = parse_qsl(parts.query, keep_blank_values=True)
+    tracking_keys = {"searchid", "search_query"}
+    if (
+        any(key.casefold() not in tracking_keys for key, _ in query)
+        or parts.fragment not in {"", "result"}
+    ):
+        raise ToolError("BigCommerce search result has identity-bearing URL state")
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
 
 
 def _rank(query: str, link: SearchLink) -> int:
