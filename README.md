@@ -23,11 +23,11 @@ The script form is `uv run --project . run.py …`. After installation, use the 
 - `product <items-json> [--description-chars 2000] [--redetect] [--debug]` accepts 1–100 product URLs, run handles, or ref objects.
 - `quote <quotes-json> [--destination <json>] [--redetect] [--debug]` accepts 1–20 stores with 1–20 lines each. One cart contains every line for a store entry.
 - `images <item-handle> [N|START:END]` downloads at most ten cached product images and prints absolute paths.
-- `config set-destination <json>`, `config show`, and `config import-vendors <path>` manage persistent configuration.
+- `config set-destination <json>`, `config show`, and `config import-vendors <path>` manage persistent configuration. `config show` reports whether credential blocks are configured without printing credential values or private-key paths.
 
-Search and product write monotonic run IDs. `r7.2.5` means item 5 from store 2 in run 7; `r7.2.5.3` means its third variant. Handles expire when their seven-day run cache is collected. Product detail emits strict, self-contained durable refs such as `{"platform":"shopify","store":"https://example.com","variant_id":"gid://shopify/ProductVariant/123"}`.
+Search and product write monotonic run IDs. `r7.2.5` means item 5 from store 2 in run 7; `r7.2.5.3` means its third variant. Handles expire seven days after creation even if garbage collection has not run. Product detail emits strict, self-contained durable refs such as `{"platform":"shopify","store":"https://example.com","variant_id":"gid://shopify/ProductVariant/123"}`. Product URLs with query strings or fragments are rejected because those components can carry product identity; use a durable ref instead.
 
-Store workers run concurrently, up to five at a time. Operations for one store remain sequential in one isolated cookie jar. Exit status is 1 when any entry has `status:api_error`.
+Store workers run concurrently, up to five at a time. Operations for one store remain sequential in one isolated cookie jar. An unexpected adapter exception becomes an `api_error` for that store without aborting the other workers. Exit status is 1 when any entry has `status:api_error`.
 
 ## Storefronts and marketplaces
 
@@ -37,7 +37,7 @@ These pseudo-store origins use marketplace discovery without live platform detec
 
 | Origin | Backend | Detail/quote boundary |
 | --- | --- | --- |
-| `https://shop.app` | Shopify Global Catalog UCP MCP | Detail supported; quote a merchant offer |
+| `https://shop.app` | Shopify Global Catalog UCP MCP | Detail preserves seller storefront/API domains and offer handoff links; quote a merchant offer |
 | `https://www.aliexpress.com` | AliExpress Affiliate API | Affiliate search only; no quote |
 | `https://shopping.google.com` | SerpApi Google Shopping | Unverified leads; quote the merchant |
 | `https://www.amazon.com` | SerpApi Amazon | Unverified listings; no anonymous cart API |
@@ -79,4 +79,4 @@ Missing marketplace credentials produce a structured setup error only when that 
 
 ## Web Bot Auth
 
-Unsigned Shopify HTTP is the default and normal public-tool behavior. `settings.web_bot_auth` opts into Ed25519 HTTP Message Signatures. The signer validates the key type and JWK thumbprint, creates fresh nonce and expiry material for every request, refuses pre-signed requests, and signs redirects only after the Shopify adapter verifies the same HTTPS authority and API path. A configured but missing or unreadable key is an `api_error` naming its path; the tool never silently falls back to unsigned traffic.
+Shopify product URLs resolve through the public Ajax product endpoint; durable variant refs resolve through Storefront GraphQL. Unsigned Shopify HTTP is the default and normal public-tool behavior. `settings.web_bot_auth` opts into Ed25519 HTTP Message Signatures. The signer validates the key type and JWK thumbprint, creates fresh nonce and expiry material for every request, refuses pre-signed requests, and signs redirects only after the Shopify adapter verifies the same HTTPS authority and API path. A configured but missing or unreadable key is an `api_error` naming its path; the tool never silently falls back to unsigned traffic.
