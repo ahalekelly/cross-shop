@@ -819,6 +819,14 @@ def _html_search(
     response = http.get(
         http.magento_html_search(detection.origin, detection.entry_url, query)
     )
+    if response.status_code in {301, 302, 303, 307, 308}:
+        location = response.headers.get("location")
+        if not location:
+            raise ToolError("Magento HTML search redirect has no Location header")
+        target = canonical_url(urljoin(str(response.url), location))
+        if url_origin(target) != detection.origin:
+            raise ToolError("Magento HTML search redirect must stay on the same storefront")
+        response = http.request("GET", target)
     denied = _denied(
         "search",
         "/catalogsearch/result",

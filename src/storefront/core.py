@@ -157,7 +157,7 @@ class Session:
 
     def magento_html_search(self, origin: str, entry_url: str, query: str) -> RequestSpec:
         del entry_url
-        return RequestSpec(origin + "/catalogsearch/result/", {"q": query})
+        return RequestSpec(origin + "/catalogsearch/result", {"q": query})
 
     def squarespace_search(self, origin: str, query: str) -> RequestSpec:
         return RequestSpec(origin + "/search", {"q": query})
@@ -187,9 +187,11 @@ class Session:
         del response
         return RequestSpec(f"https://app.ecwid.com/script.js?{store_id}")
 
-    def ecwid_products(self, response: httpx.Response, store_id: str, token: str, query: str) -> RequestSpec:
-        base = str(response.url).split(f"/{store_id}/initial-data", 1)[0]
-        return RequestSpec(f"{base}/{store_id}/products", {"token": token, "keyword": query, "limit": "20"})
+    def ecwid_products(self, store_id: str, token: str, query: str) -> RequestSpec:
+        return RequestSpec(
+            f"https://app.ecwid.com/api/v3/{store_id}/products",
+            {"token": token, "keyword": query, "limit": 20},
+        )
 
 
 Http = Session

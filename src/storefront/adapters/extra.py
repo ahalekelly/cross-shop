@@ -239,9 +239,7 @@ def _ecwid_search(
     initial = json_object(initial_response, "Ecwid initial data")
     token, currency = _ecwid_public_profile(initial)
 
-    products_response = http.get(
-        http.ecwid_products(initial_response, store_id, token, query)
-    )
+    products_response = http.get(http.ecwid_products(store_id, token, query))
     terminal = _wall(products_response, "ecwid")
     if terminal is not None:
         return terminal
