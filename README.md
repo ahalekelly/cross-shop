@@ -27,6 +27,21 @@ Register it with Claude Code:
 claude mcp add cross-shop -- uv run --project <package-dir> cross-shop-mcp
 ```
 
+For Pi, install [pi-mcp-adapter](https://www.npmjs.com/package/pi-mcp-adapter) (`pi install npm:pi-mcp-adapter`), then declare the server in any standard MCP config the adapter reads (project `.mcp.json`, `~/.config/mcp/mcp.json`, or `~/.agents/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "cross-shop": {
+      "command": "uv",
+      "args": ["run", "--project", "<package-dir>", "cross-shop-mcp"]
+    }
+  }
+}
+```
+
+Point every client at the same `<package-dir>` so one installation serves them all.
+
 ## Commands
 
 - `search <entries-json> [--limit 20] [--description-chars 300] [--redetect] [--debug]` accepts 1–100 `{store,query}` entries. Repeated stores share one session and detection and their products are deduplicated.
