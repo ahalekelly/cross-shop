@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import quote, urlsplit
 from zoneinfo import ZoneInfo
 
-from storefront.core import (
+from cross_shop.core import (
     DetectedStore,
     Session,
     ToolError,

@@ -19,8 +19,8 @@ ROOT = Path(__file__).parents[1]
 FIXTURES = Path(__file__).parent / "fixtures"
 sys.path.insert(0, str(ROOT))
 
-core = importlib.import_module("storefront.core")
-magento = importlib.import_module("storefront.adapters.magento")
+core = importlib.import_module("cross_shop.core")
+magento = importlib.import_module("cross_shop.adapters.magento")
 MagentoDetectedStore = core.MagentoDetectedStore
 Session = core.Session
 ToolError = core.ToolError

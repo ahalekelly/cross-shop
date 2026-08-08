@@ -6,9 +6,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from storefront.core import ToolError
-from storefront.service import Storefront
-from storefront.storage import DataStore
+from cross_shop.core import ToolError
+from cross_shop.service import CrossShop
+from cross_shop.storage import DataStore
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -18,7 +18,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "config":
             result = _config(data, args)
         else:
-            tool = Storefront(data)
+            tool = CrossShop(data)
             if args.command == "search":
                 result = tool.search(_json(args.entries, "search entries"), limit=args.limit, description_chars=args.description_chars, redetect=args.redetect, debug=args.debug)
             elif args.command == "product":

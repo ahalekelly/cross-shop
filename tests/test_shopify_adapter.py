@@ -5,8 +5,8 @@ import json
 import httpx
 import pytest
 
-from storefront.adapters import shopify
-from storefront.core import DEFAULT_DESTINATION, DetectedStore, Session, ToolError, destination_for, item_ref
+from cross_shop.adapters import shopify
+from cross_shop.core import DEFAULT_DESTINATION, DetectedStore, Session, ToolError, destination_for, item_ref
 
 
 def adapter() -> shopify.Shopify:

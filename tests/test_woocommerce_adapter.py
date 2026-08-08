@@ -15,8 +15,8 @@ from pathlib import Path
 import httpx
 
 
-from storefront.core import DEFAULT_DESTINATION, DetectedStore, Session, ToolError, parse_item_ref, validate_ref
-from storefront.adapters import woocommerce
+from cross_shop.core import DEFAULT_DESTINATION, DetectedStore, Session, ToolError, parse_item_ref, validate_ref
+from cross_shop.adapters import woocommerce
 
 
 def adapter() -> woocommerce.WooCommerce:

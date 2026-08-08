@@ -6,8 +6,8 @@ from pathlib import Path
 import httpx
 import pytest
 
-from storefront.adapters import extra
-from storefront.core import DEFAULT_DESTINATION, DetectedStore, Session, StorefrontBotWall, ToolError, parse_item_ref
+from cross_shop.adapters import extra
+from cross_shop.core import DEFAULT_DESTINATION, DetectedStore, Session, StorefrontBotWall, ToolError, parse_item_ref
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

@@ -12,7 +12,7 @@ import httpx
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from storefront.core import ToolError
+from cross_shop.core import ToolError
 
 SIGNATURE_HEADER_NAMES = ("Signature-Agent", "Signature-Input", "Signature")
 

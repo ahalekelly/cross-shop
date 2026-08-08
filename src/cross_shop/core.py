@@ -96,7 +96,7 @@ class Session:
             transport=transport,
             timeout=httpx.Timeout(45, connect=10),
             headers={
-                "User-Agent": "Mozilla/5.0 (compatible; Storefront/1.0)",
+                "User-Agent": "Mozilla/5.0 (compatible; CrossShop/1.0)",
                 "Accept": "application/json,text/html;q=0.9,*/*;q=0.8",
             },
             follow_redirects=False,

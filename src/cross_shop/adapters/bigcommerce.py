@@ -9,7 +9,7 @@ from urllib.parse import quote as url_quote
 from urllib.parse import parse_qsl, unquote, urljoin, urlsplit, urlunsplit
 
 import httpx
-from storefront.core import (
+from cross_shop.core import (
     BigCommerceQuote,
     BigCommerceSearch,
     BigCommerceShipping,

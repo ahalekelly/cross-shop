@@ -15,7 +15,7 @@ import httpx
 ROOT = Path(__file__).parents[1]
 FIXTURES = Path(__file__).parent / "fixtures"
 
-from storefront.core import (
+from cross_shop.core import (
     DEFAULT_DESTINATION,
     DetectedStore,
     Session,
@@ -24,7 +24,7 @@ from storefront.core import (
     item_ref,
     parse_item_ref,
 )
-from storefront.adapters import squarespace
+from cross_shop.adapters import squarespace
 
 
 def fixture(name: str) -> bytes:

@@ -7,9 +7,9 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from storefront.core import ToolError
-from storefront.storage import DataStore
-from storefront.web_bot_auth import build_signer
+from cross_shop.core import ToolError
+from cross_shop.storage import DataStore
+from cross_shop.web_bot_auth import build_signer
 
 
 def test_shipped_vendor_seed_preserves_redirect_aliases() -> None:

@@ -7,7 +7,7 @@ from typing import Any, ClassVar, Literal
 from urllib.parse import urljoin, urlsplit
 
 import httpx
-from storefront.core import (
+from cross_shop.core import (
     DetectedStore,
     EcwidSearch,
     Session,

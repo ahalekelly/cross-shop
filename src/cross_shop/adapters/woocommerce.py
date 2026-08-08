@@ -5,7 +5,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
-from storefront.core import (
+from cross_shop.core import (
     DetectedStore,
     Session,
     StorefrontBotWall,

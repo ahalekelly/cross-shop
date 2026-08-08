@@ -9,18 +9,18 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from storefront.adapters import bigcommerce, extra, magento, shopify, squarespace, woocommerce
-from storefront.adapters.marketplaces import AliExpress, Ebay, SerpApi, ShopifyGlobal
-from storefront.core import (
+from cross_shop.adapters import bigcommerce, extra, magento, shopify, squarespace, woocommerce
+from cross_shop.adapters.marketplaces import AliExpress, Ebay, SerpApi, ShopifyGlobal
+from cross_shop.core import (
     DetectedStore, MagentoDetectedStore, PositiveDetection, Session, StorefrontBotWall,
     StorefrontDetection, ToolError, UnknownStore, adapter_items, api_error, canonical_ref,
     canonical_url, description, money_amount, normalize_variant, public_detection,
     url_origin, validate_ref, wall_system,
 )
-from storefront.storage import DataStore, HANDLE, validate_destination
-from storefront.web_bot_auth import build_signer
+from cross_shop.storage import DataStore, HANDLE, validate_destination
+from cross_shop.web_bot_auth import build_signer
 
-SCHEMA_VERSION = "storefront-1"
+SCHEMA_VERSION = "cross-shop-1"
 PSEUDO = {
     "https://shop.app": "shopify_global",
     "https://www.aliexpress.com": "aliexpress",
@@ -52,7 +52,7 @@ class BoundaryAdapter:
         return api_error(self.platform, "quote", f"{self.platform} requires a browser workflow")
 
 
-class Storefront:
+class CrossShop:
     def __init__(
         self,
         data: DataStore | None = None,

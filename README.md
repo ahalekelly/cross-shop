@@ -1,21 +1,21 @@
-# storefront
+# cross-shop
 
-`storefront` is a batch-first CLI and Python library for product search, product detail, and anonymous destination shipping quotes across public storefronts and marketplaces. Its default JSON output is compact for AI agents: store constants are hoisted, empty fields disappear, search results contain handles instead of refs, and image URLs remain in the run cache.
+`cross-shop` is a batch-first CLI and Python library for product search, product detail, and anonymous destination shipping quotes across public storefronts and marketplaces. Its default JSON output is compact for AI agents: store constants are hoisted, empty fields disappear, search results contain handles instead of refs, and image URLs remain in the run cache.
 
 ## Run
 
 From this directory:
 
 ```sh
-uv run storefront search '[{"store":"https://example.com","query":"bearing"}]'
-uv run storefront product '["r1.1.1"]'
-uv run storefront quote '[{"store":"https://example.com","lines":[{"item":"r1.1.1.2","quantity":3}]}]'
-uv run storefront images r1.1.1 1:3
-uv run storefront config show
+uv run cross-shop search '[{"store":"https://example.com","query":"bearing"}]'
+uv run cross-shop product '["r1.1.1"]'
+uv run cross-shop quote '[{"store":"https://example.com","lines":[{"item":"r1.1.1.2","quantity":3}]}]'
+uv run cross-shop images r1.1.1 1:3
+uv run cross-shop config show
 uv run pytest
 ```
 
-After installation, use the `storefront` console command. A source checkout runs the same command with `uv run --project <path-to-this-directory> storefront …` or `uvx --from . storefront …`.
+After installation, use the `cross-shop` console command. A source checkout runs the same command with `uv run --project <path-to-this-directory> cross-shop …` or `uvx --from . cross-shop …`.
 
 ## Commands
 
@@ -47,7 +47,7 @@ Google Shopping, Amazon, and AliExpress results are leads. Re-verify the exact m
 
 ## Data and settings
 
-The default data directory comes from `platformdirs.user_data_path("storefront")`. Set `STOREFRONT_DATA_DIR` to override it. Runtime data never writes into the package tree.
+The default data directory comes from `platformdirs.user_data_path("cross-shop")`. Set `CROSS_SHOP_DATA_DIR` to override it. Runtime data never writes into the package tree.
 
 - `settings.json` stores destination and optional integrations.
 - `vendors.json` is the atomic, lock-protected canonical-origin platform registry.

@@ -12,7 +12,7 @@ from typing import Any, Iterator
 
 from platformdirs import user_data_path
 
-from storefront.core import DEFAULT_DESTINATION, ToolError
+from cross_shop.core import DEFAULT_DESTINATION, ToolError
 
 DESTINATION_KEYS = {"country", "region", "city", "address1", "postal_code"}
 HANDLE = re.compile(r"^(r[1-9]\d*)\.([1-9]\d*)\.([1-9]\d*)(?:\.([1-9]\d*))?$")
@@ -20,8 +20,8 @@ HANDLE = re.compile(r"^(r[1-9]\d*)\.([1-9]\d*)\.([1-9]\d*)(?:\.([1-9]\d*))?$")
 
 class DataStore:
     def __init__(self, root: Path | None = None) -> None:
-        configured = os.environ.get("STOREFRONT_DATA_DIR")
-        self.root = root or (Path(configured).expanduser() if configured else user_data_path("storefront", appauthor=False))
+        configured = os.environ.get("CROSS_SHOP_DATA_DIR")
+        self.root = root or (Path(configured).expanduser() if configured else user_data_path("cross-shop", appauthor=False))
         self.root.mkdir(parents=True, exist_ok=True)
         self._thread_lock = threading.RLock()
         self.lock_path = self.root / ".lock"

@@ -8,9 +8,9 @@ from pathlib import Path
 import httpx
 import pytest
 
-from storefront.core import DetectedStore, ToolError, canonical_ref, description, item_ref, validate_ref
-from storefront.service import Storefront
-from storefront.storage import DataStore, DEFAULT_DESTINATION, validate_destination
+from cross_shop.core import DetectedStore, ToolError, canonical_ref, description, item_ref, validate_ref
+from cross_shop.service import CrossShop
+from cross_shop.storage import DataStore, DEFAULT_DESTINATION, validate_destination
 
 
 class FakeAdapter:
@@ -80,8 +80,8 @@ def data(tmp_path: Path) -> DataStore:
     return store
 
 
-def tool(data: DataStore, adapter: FakeAdapter, transport_factory=None) -> Storefront:
-    return Storefront(data, transport_factory or (lambda origin: httpx.MockTransport(lambda request: (_ for _ in ()).throw(AssertionError(request.url)))), {"shopify": adapter})
+def tool(data: DataStore, adapter: FakeAdapter, transport_factory=None) -> CrossShop:
+    return CrossShop(data, transport_factory or (lambda origin: httpx.MockTransport(lambda request: (_ for _ in ()).throw(AssertionError(request.url)))), {"shopify": adapter})
 
 
 def test_search_batches_queries_collapses_variants_and_is_token_lean(data: DataStore) -> None:
@@ -117,10 +117,10 @@ def test_search_batches_queries_collapses_variants_and_is_token_lean(data: DataS
 
 def test_product_resolves_handle_and_emits_durable_refs(data: DataStore) -> None:
     adapter = FakeAdapter()
-    storefront = tool(data, adapter)
-    storefront.search([{"store": "https://one.test", "query": "valve"}])
+    cross_shop = tool(data, adapter)
+    cross_shop.search([{"store": "https://one.test", "query": "valve"}])
 
-    result = storefront.product(["r1.1.1"])
+    result = cross_shop.product(["r1.1.1"])
 
     assert result["run"] == "r2"
     product = result["products"][0]
@@ -135,10 +135,10 @@ def test_product_resolves_handle_and_emits_durable_refs(data: DataStore) -> None
 
 def test_quote_resolves_variant_handle_and_preserves_quantity(data: DataStore) -> None:
     adapter = FakeAdapter()
-    storefront = tool(data, adapter)
-    storefront.search([{"store": "https://one.test", "query": "valve"}])
+    cross_shop = tool(data, adapter)
+    cross_shop.search([{"store": "https://one.test", "query": "valve"}])
 
-    result = storefront.quote(
+    result = cross_shop.quote(
         [{"store": "https://one.test", "lines": [{"item": "r1.1.1.2", "quantity": 2}]}]
     )
 
@@ -149,10 +149,10 @@ def test_quote_resolves_variant_handle_and_preserves_quantity(data: DataStore) -
 
 def test_bare_multi_variant_handle_is_an_api_error(data: DataStore) -> None:
     adapter = FakeAdapter()
-    storefront = tool(data, adapter)
-    storefront.search([{"store": "https://one.test", "query": "valve"}])
+    cross_shop = tool(data, adapter)
+    cross_shop.search([{"store": "https://one.test", "query": "valve"}])
 
-    result = storefront.quote(
+    result = cross_shop.quote(
         [{"store": "https://one.test", "lines": [{"item": "r1.1.1", "quantity": 1}]}]
     )
 
@@ -206,7 +206,7 @@ def test_redetect_overwrites_a_contradicting_registry_entry(data: DataStore) -> 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, text='<script src="/stencil/app.js"></script>', request=request)
 
-    result = Storefront(
+    result = CrossShop(
         data,
         lambda origin: httpx.MockTransport(handler),
         {"bigcommerce": BigCommerceAdapter()},
@@ -268,7 +268,7 @@ def test_images_uses_cached_urls_and_range(tmp_path: Path) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=b"image", headers={"content-type": "image/png"}, request=request)
 
-    result = Storefront(data, lambda origin: httpx.MockTransport(handler)).images_for(f"{run}.1.1", "2")
+    result = CrossShop(data, lambda origin: httpx.MockTransport(handler)).images_for(f"{run}.1.1", "2")
     assert len(result) == 1
     assert result[0].endswith("/2.png")
     assert Path(result[0]).read_bytes() == b"image"
@@ -277,12 +277,12 @@ def test_images_uses_cached_urls_and_range(tmp_path: Path) -> None:
 def test_quote_destination_precedence(data: DataStore) -> None:
     adapter = FakeAdapter()
     data.set_destination({"country": "CA", "postal_code": "M5V 3L9"})
-    storefront = tool(data, adapter)
+    cross_shop = tool(data, adapter)
     ref = {"platform": "shopify", "store": "https://one.test", "variant_id": "gid://shopify/ProductVariant/1"}
     quote = [{"store": "https://one.test", "lines": [{"item": ref, "quantity": 1}]}]
 
-    storefront.quote(quote)
-    storefront.quote(quote, destination={"country": "GB", "postal_code": "SW1A 1AA"})
+    cross_shop.quote(quote)
+    cross_shop.quote(quote, destination={"country": "GB", "postal_code": "SW1A 1AA"})
 
     assert adapter.destinations == [
         {"country": "CA", "postal_code": "M5V 3L9"},

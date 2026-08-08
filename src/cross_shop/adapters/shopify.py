@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import urljoin, urlsplit
 
 import httpx
-from storefront.core import (
+from cross_shop.core import (
     DetectedStore,
     Session,
     ShopifyQuote,
@@ -30,7 +30,7 @@ from storefront.core import (
     url_origin,
     wall_system,
 )
-from storefront.web_bot_auth import build_signer
+from cross_shop.web_bot_auth import build_signer
 
 API_PATH = "/api/2026-07/graphql.json"
 PRODUCT_QUERY = """

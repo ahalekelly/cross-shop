@@ -5,8 +5,8 @@ import json
 import httpx
 import pytest
 
-from storefront.adapters import bigcommerce, magento, shopify, squarespace, woocommerce
-from storefront.core import (
+from cross_shop.adapters import bigcommerce, magento, shopify, squarespace, woocommerce
+from cross_shop.core import (
     DetectedStore,
     MagentoDetectedStore,
     Session,

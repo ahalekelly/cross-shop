@@ -9,10 +9,10 @@ from urllib.parse import parse_qsl
 import httpx
 import pytest
 
-from storefront.adapters.marketplaces import AliExpress, Ebay, SerpApi, ShopifyGlobal
-from storefront.core import DetectedStore, Session, ToolError
-from storefront.service import Storefront
-from storefront.storage import DataStore
+from cross_shop.adapters.marketplaces import AliExpress, Ebay, SerpApi, ShopifyGlobal
+from cross_shop.core import DetectedStore, Session, ToolError
+from cross_shop.service import CrossShop
+from cross_shop.storage import DataStore
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -194,7 +194,7 @@ def test_shopify_global_search_writes_handles_and_shopify_merchants(tmp_path: Pa
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=payload, request=request)
 
-    result = Storefront(data, lambda origin: httpx.MockTransport(handler)).search(
+    result = CrossShop(data, lambda origin: httpx.MockTransport(handler)).search(
         [{"store": "https://shop.app", "query": "boot"}]
     )
 

@@ -9,11 +9,11 @@ from pathlib import Path
 import httpx
 import pytest
 
-from storefront import cli
-from storefront.adapters import bigcommerce, extra
-from storefront.core import DetectedStore, Session, ToolError, canonical_url, item_ref
-from storefront.service import Storefront
-from storefront.storage import DataStore
+from cross_shop import cli
+from cross_shop.adapters import bigcommerce, extra
+from cross_shop.core import DetectedStore, Session, ToolError, canonical_url, item_ref
+from cross_shop.service import CrossShop
+from cross_shop.storage import DataStore
 
 
 class ProductQuoteAdapter:
@@ -186,7 +186,7 @@ def test_shopify_url_product_uses_live_ajax_product_endpoint(tmp_path: Path) -> 
             return httpx.Response(200, json={"currency": "USD"}, request=request)
         raise AssertionError(request.url)
 
-    result = Storefront(data, lambda origin: httpx.MockTransport(handler)).product(
+    result = CrossShop(data, lambda origin: httpx.MockTransport(handler)).product(
         ["https://one.test/products/valve"]
     )
 
@@ -204,7 +204,7 @@ def test_product_and_direct_quote_include_live_identity_currency_and_debug(
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, request=request)
 
-    storefront = Storefront(
+    cross_shop = CrossShop(
         data,
         lambda origin: httpx.MockTransport(handler),
         {"shopify": ProductQuoteAdapter()},
@@ -215,8 +215,8 @@ def test_product_and_direct_quote_include_live_identity_currency_and_debug(
         "variant_id": "gid://shopify/ProductVariant/1",
     }
 
-    product = storefront.product([ref], debug=True)["products"][0]
-    quote = storefront.quote(
+    product = cross_shop.product([ref], debug=True)["products"][0]
+    quote = cross_shop.quote(
         [{"store": "https://one.test", "lines": [{"item": ref, "quantity": 2}]}],
         debug=True,
     )["stores"][0]
@@ -250,7 +250,7 @@ def test_parallel_store_exception_is_isolated(tmp_path: Path) -> None:
                 raise ValueError("malformed provider value")
             return super().search(session, detection, query, limit, destination)
 
-    result = Storefront(data, adapters={"shopify": Adapter()}).search(
+    result = CrossShop(data, adapters={"shopify": Adapter()}).search(
         [
             {"store": "https://one.test", "query": "bad"},
             {"store": "https://two.test", "query": "good"},
@@ -273,7 +273,7 @@ def test_parallel_results_preserve_input_order(tmp_path: Path) -> None:
                 time.sleep(0.02)
             return {"kind": "search", "platform": "shopify", "items": [{"title": detection.origin, "product_url": detection.origin + "/products/item", "item_ref": item_ref("shopify", {"variant_id": "gid://shopify/ProductVariant/1"})}]}
 
-    result = Storefront(data, adapters={"shopify": Adapter()}).search([
+    result = CrossShop(data, adapters={"shopify": Adapter()}).search([
         {"store": "https://slow.test", "query": "one"},
         {"store": "https://fast.test", "query": "two"},
     ])
@@ -284,9 +284,9 @@ def test_parallel_results_preserve_input_order(tmp_path: Path) -> None:
 def test_item_discriminator_and_canonical_urls_reject_ambiguous_input(
     tmp_path: Path,
 ) -> None:
-    storefront = Storefront(DataStore(tmp_path))
+    cross_shop = CrossShop(DataStore(tmp_path))
     with pytest.raises(ToolError, match="product-page URL"):
-        storefront._resolve_item("httpfoo")
+        cross_shop._resolve_item("httpfoo")
     with pytest.raises(ToolError, match="query or fragment"):
         canonical_url("https://store.test/products/item?variant=1")
 
@@ -323,7 +323,7 @@ def test_load_run_rejects_expired_run_without_gc(tmp_path: Path) -> None:
 def test_cli_exit_codes_follow_api_errors(monkeypatch, tmp_path: Path, capsys) -> None:
     data = DataStore(tmp_path)
 
-    class FakeStorefront:
+    class FakeCrossShop:
         def __init__(self, received):
             assert received is data
 
@@ -335,7 +335,7 @@ def test_cli_exit_codes_follow_api_errors(monkeypatch, tmp_path: Path, capsys) -
             return {"stores": [{"status": status}]}
 
     monkeypatch.setattr(cli, "DataStore", lambda: data)
-    monkeypatch.setattr(cli, "Storefront", FakeStorefront)
+    monkeypatch.setattr(cli, "CrossShop", FakeCrossShop)
 
     assert cli.main(["search", '[{"store":"https://one.test","query":"ok"}]']) == 0
     assert '"status":"ok"' in capsys.readouterr().out
