@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,7 @@ from cross_shop.web_bot_auth import build_signer
 
 
 def test_shipped_vendor_seed_preserves_redirect_aliases() -> None:
-    seed = json.loads((Path(__file__).parents[2] / "vendors.seed.json").read_text())
+    seed = json.loads(files("cross_shop").joinpath("vendors.seed.json").read_text())
     assert seed["https://malcowallshop.com"]["api_origin"] == "https://holzbuchstaben.ch"
     assert seed["https://mettleair.com"]["api_origin"] == "https://mettleairstore.com"
 

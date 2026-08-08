@@ -7,6 +7,7 @@ import re
 import threading
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from importlib.resources import files
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -155,20 +156,18 @@ class DataStore:
     def _seed_on_first_run(self) -> None:
         if self.vendors_path.exists():
             return
-        seed = Path(__file__).parents[3] / "vendors.seed.json"
+        value = json.loads(
+            files("cross_shop").joinpath("vendors.seed.json").read_text()
+        )
+        if not isinstance(value, dict) or any(
+            not isinstance(key, str) or not isinstance(item, dict)
+            for key, item in value.items()
+        ):
+            raise ToolError("Vendor seed must be an object map")
         with self.locked():
             if self.vendors_path.exists():
                 return
-            vendors: dict[str, Any] = {}
-            if seed.exists():
-                value = self._read(seed, None)
-                if not isinstance(value, dict) or any(
-                    not isinstance(key, str) or not isinstance(item, dict)
-                    for key, item in value.items()
-                ):
-                    raise ToolError(f"Vendor seed must be an object map: {seed}")
-                vendors.update(value)
-            self._write(self.vendors_path, vendors)
+            self._write(self.vendors_path, value)
 
     @staticmethod
     def _read(path: Path, default: Any) -> Any:

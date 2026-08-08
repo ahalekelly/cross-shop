@@ -1,0 +1,712 @@
+{
+  "https://actisense.com": {
+    "api_origin": "https://actisense.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "woocommerce"
+  },
+  "https://adafruit.com": {
+    "api_origin": "https://adafruit.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "zen_cart"
+  },
+  "https://aheadworks.com": {
+    "api_origin": "https://aheadworks.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "magento",
+    "search_source": "graphql"
+  },
+  "https://aircompressorservices.com": {
+    "api_origin": "https://aircompressorservices.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "shopify"
+  },
+  "https://alcott.eu": {
+    "api_origin": "https://www.alcott.eu",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "sfcc"
+  },
+  "https://alibaba.com": {
+    "api_origin": "https://alibaba.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  },
+  "https://aliexpress.us": {
+    "api_origin": "https://aliexpress.us",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  },
+  "https://amazon.com": {
+    "api_origin": "https://amazon.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  },
+  "https://archive07.com": {
+    "api_origin": "https://archive07.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "squarespace"
+  },
+  "https://arrow.com": {
+    "api_origin": "https://arrow.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  },
+  "https://attitudeliving.com": {
+    "api_origin": "https://attitudeliving.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "shopify"
+  },
+  "https://atxfitness.com": {
+    "api_origin": "https://atxfitness.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "magento",
+    "search_source": "graphql"
+  },
+  "https://automationdirect.com": {
+    "api_origin": "https://automationdirect.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  },
+  "https://barrdisplay.com": {
+    "api_origin": "https://barrdisplay.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "magento",
+    "search_source": "graphql"
+  },
+  "https://bestiehugs.com": {
+    "api_origin": "https://bestiehugs.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "wix"
+  },
+  "https://blanks.ca": {
+    "api_origin": "https://blanks.ca",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "magento",
+    "search_source": "graphql"
+  },
+  "https://boltdepot.com": {
+    "api_origin": "https://boltdepot.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  },
+  "https://buckleguy.com": {
+    "api_origin": "https://buckleguy.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "bigcommerce"
+  },
+  "https://bulkreefsupply.com": {
+    "api_origin": "https://bulkreefsupply.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "magento",
+    "search_source": "graphql"
+  },
+  "https://cakesafe.com": {
+    "api_origin": "https://app.ecwid.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "ecwid"
+  },
+  "https://carex.com": {
+    "api_origin": "https://carex.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "shopify"
+  },
+  "https://debrovys.com": {
+    "api_origin": "https://debrovys.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "bigcommerce"
+  },
+  "https://decksdirect.com": {
+    "api_origin": "https://decksdirect.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "magento",
+    "search_source": "graphql"
+  },
+  "https://dernord.com": {
+    "api_origin": "https://dernord.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "shopify"
+  },
+  "https://digikey.com": {
+    "api_origin": "https://digikey.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  },
+  "https://dillonprecision.com": {
+    "api_origin": "https://dillonprecision.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "magento",
+    "search_source": "graphql"
+  },
+  "https://ebay.com": {
+    "api_origin": "https://ebay.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  },
+  "https://f-o-a.com": {
+    "api_origin": "https://f-o-a.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "woocommerce"
+  },
+  "https://fabricwarehouse.com": {
+    "api_origin": "https://fabricwarehouse.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "bigcommerce"
+  },
+  "https://franklygoodcoffee.com": {
+    "api_origin": "https://franklygoodcoffee.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "squarespace"
+  },
+  "https://garagecabinetsonline.com": {
+    "api_origin": "https://garagecabinetsonline.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "shopify"
+  },
+  "https://glaciertanks.com": {
+    "api_origin": "https://glaciertanks.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "magento",
+    "search_source": "graphql"
+  },
+  "https://gobilda.com": {
+    "api_origin": "https://gobilda.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "bigcommerce"
+  },
+  "https://gps.co.uk": {
+    "api_origin": "https://gps.co.uk",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "woocommerce"
+  },
+  "https://grainger.com": {
+    "api_origin": "https://grainger.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  },
+  "https://hi-line.com": {
+    "api_origin": "https://hi-line.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "bigcommerce"
+  },
+  "https://holzbuchstaben.ch": {
+    "api_origin": "https://holzbuchstaben.ch",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "wix"
+  },
+  "https://homedepot.com": {
+    "api_origin": "https://homedepot.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  },
+  "https://hugoboss.com": {
+    "api_origin": "https://hugoboss.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "sfcc"
+  },
+  "https://hydraulic-components.net": {
+    "api_origin": "https://hydraulic-components.net",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "shopify"
+  },
+  "https://hydraulichosetogo.com": {
+    "api_origin": "https://hydraulichosetogo.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "bigcommerce"
+  },
+  "https://intlairtool.com": {
+    "api_origin": "https://intlairtool.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "bigcommerce"
+  },
+  "https://izzywheels.com": {
+    "api_origin": "https://izzywheels.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "wix"
+  },
+  "https://jlcmc.com": {
+    "api_origin": "https://jlcmc.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  },
+  "https://killerinktattoo.co.uk": {
+    "api_origin": "https://killerinktattoo.co.uk",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "magento",
+    "search_source": "graphql"
+  },
+  "https://lcsc.com": {
+    "api_origin": "https://lcsc.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  },
+  "https://lowes.com": {
+    "api_origin": "https://lowes.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  },
+  "https://makerstore.cc": {
+    "api_origin": "https://makerstore.cc",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "woocommerce"
+  },
+  "https://malcowallshop.com": {
+    "api_origin": "https://holzbuchstaben.ch",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "wix"
+  },
+  "https://manorsgolf.com": {
+    "api_origin": "https://manorsgolf.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "shopify"
+  },
+  "https://marieburgoscollection.com": {
+    "api_origin": "https://marieburgoscollection.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "squarespace"
+  },
+  "https://masterelectronics.com": {
+    "api_origin": "https://masterelectronics.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  },
+  "https://mcmaster.com": {
+    "api_origin": "https://mcmaster.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  },
+  "https://mettleair.com": {
+    "api_origin": "https://mettleairstore.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "shopify"
+  },
+  "https://mettleairstore.com": {
+    "api_origin": "https://mettleairstore.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "shopify"
+  },
+  "https://mouser.com": {
+    "api_origin": "https://mouser.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  },
+  "https://myolyn.com": {
+    "api_origin": "https://myolyn.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "woocommerce"
+  },
+  "https://northboundcoffee.com": {
+    "api_origin": "https://app.ecwid.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "ecwid"
+  },
+  "https://nour-hammour.com": {
+    "api_origin": "https://nour-hammour.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "shopify"
+  },
+  "https://omc-stepperonline.com": {
+    "api_origin": "https://omc-stepperonline.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "opencart"
+  },
+  "https://omega.com": {
+    "api_origin": "https://omega.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  },
+  "https://parkerhydraulics-shop.co.uk": {
+    "api_origin": "https://parkerhydraulics-shop.co.uk",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "shopify"
+  },
+  "https://pololu.com": {
+    "api_origin": "https://pololu.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  },
+  "https://protosupplies.com": {
+    "api_origin": "https://protosupplies.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "woocommerce"
+  },
+  "https://puresealservices.co.uk": {
+    "api_origin": "https://puresealservices.co.uk",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "woocommerce"
+  },
+  "https://resin-pro.co.uk": {
+    "api_origin": "https://resin-pro.co.uk",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "woocommerce"
+  },
+  "https://rope-source.co.uk": {
+    "api_origin": "https://rope-source.co.uk",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "woocommerce"
+  },
+  "https://rotarysolutions.com": {
+    "api_origin": "https://rotarysolutions.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "woocommerce"
+  },
+  "https://saslocksmiths.com": {
+    "api_origin": "https://saslocksmiths.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "shopify"
+  },
+  "https://scoutshop.org": {
+    "api_origin": "https://scoutshop.org",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "magento",
+    "search_source": "graphql"
+  },
+  "https://servocity.com": {
+    "api_origin": "https://servocity.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "bigcommerce"
+  },
+  "https://signet.net.au": {
+    "api_origin": "https://signet.net.au",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "magento",
+    "search_source": "graphql"
+  },
+  "https://sikahealth.com": {
+    "api_origin": "https://sikahealth.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "shopify"
+  },
+  "https://sparkfun.com": {
+    "api_origin": "https://sparkfun.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "magento",
+    "search_source": "graphql"
+  },
+  "https://spwindustrial.com": {
+    "api_origin": "https://spwindustrial.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "bigcommerce"
+  },
+  "https://store.nrgwave.com": {
+    "api_origin": "https://store.nrgwave.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "woocommerce"
+  },
+  "https://tackledirect.com": {
+    "api_origin": "https://tackledirect.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "bigcommerce"
+  },
+  "https://target.com": {
+    "api_origin": "https://target.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  },
+  "https://tech7000.com": {
+    "api_origin": "https://tech7000.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "woocommerce"
+  },
+  "https://thecpapshop.com": {
+    "api_origin": "https://thecpapshop.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "magento",
+    "search_source": "graphql"
+  },
+  "https://tilebar.com": {
+    "api_origin": "https://tilebar.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "magento",
+    "search_source": "graphql"
+  },
+  "https://us.dunlopsports.com": {
+    "api_origin": "https://us.dunlopsports.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "sfcc"
+  },
+  "https://us.misumi-ec.com": {
+    "api_origin": "https://us.misumi-ec.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  },
+  "https://valinonline.com": {
+    "api_origin": "https://valinonline.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "bigcommerce"
+  },
+  "https://www.alcott.eu": {
+    "api_origin": "https://www.alcott.eu",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "sfcc"
+  },
+  "https://wyliebeckert.com": {
+    "api_origin": "https://wyliebeckert.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "unknown"
+  },
+  "https://zoro.com": {
+    "api_origin": "https://zoro.com",
+    "detected_at": "2026-07-31",
+    "evidence": [
+      "learned_cache"
+    ],
+    "platform": "custom"
+  }
+}
