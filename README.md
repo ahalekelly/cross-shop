@@ -17,6 +17,16 @@ uv run pytest
 
 After installation, use the `cross-shop` console command. A source checkout runs the same command with `uv run --project <path-to-this-directory> cross-shop …` or `uvx --from . cross-shop …`.
 
+## MCP
+
+The stdio MCP server exposes `search`, `product`, `quote`, and `images` with the same compact results as the CLI. Search results use `r<run>.<s>.<i>[.<v>]` handles so callers can chain search → product → quote.
+
+Register it with Claude Code:
+
+```sh
+claude mcp add cross-shop -- uv run --project <package-dir> cross-shop-mcp
+```
+
 ## Commands
 
 - `search <entries-json> [--limit 20] [--description-chars 300] [--redetect] [--debug]` accepts 1–100 `{store,query}` entries. Repeated stores share one session and detection and their products are deduplicated.

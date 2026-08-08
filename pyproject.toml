@@ -7,11 +7,13 @@ requires-python = ">=3.12"
 dependencies = [
   "cryptography>=45,<47",
   "httpx>=0.28,<0.29",
+  "mcp>=1.29,<2",
   "platformdirs>=4,<5",
 ]
 
 [project.scripts]
 cross-shop = "cross_shop.cli:main"
+cross-shop-mcp = "cross_shop.mcp_server:main"
 
 [dependency-groups]
 dev = ["pytest>=8,<9"]

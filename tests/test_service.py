@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from cross_shop import mcp_server
 from cross_shop.core import DetectedStore, ToolError, canonical_ref, description, item_ref, validate_ref
 from cross_shop.service import CrossShop
 from cross_shop.storage import DataStore, DEFAULT_DESTINATION, validate_destination
@@ -304,3 +305,88 @@ def test_destination_and_description_validation() -> None:
     assert description("<p>A &amp; B</p>", 3) == "A &…"
     with pytest.raises(ToolError, match="unknown keys"):
         validate_destination({**DEFAULT_DESTINATION, "phone": "x"})
+
+
+def test_mcp_search_returns_service_envelope_unchanged(data: DataStore, monkeypatch) -> None:
+    service = tool(data, FakeAdapter())
+    original = service.search
+    returned = []
+
+    def capture(*args, **kwargs):
+        returned.append(original(*args, **kwargs))
+        return returned[0]
+
+    monkeypatch.setattr(service, "search", capture)
+    monkeypatch.setattr(mcp_server, "_service", lambda: service)
+    result = mcp_server.search(
+        [{"store": "https://one.test", "query": "valve"}],
+        limit=10,
+        description_chars=12,
+        redetect=False,
+    )
+
+    assert result is returned[0]
+    assert result["stores"][0]["items"][0]["description"] == "Stainless &…"
+
+
+def test_mcp_product_returns_service_envelope_unchanged(data: DataStore, monkeypatch) -> None:
+    service = tool(data, FakeAdapter())
+    service.search([{"store": "https://one.test", "query": "valve"}])
+    original = service.product
+    returned = []
+
+    def capture(*args, **kwargs):
+        returned.append(original(*args, **kwargs))
+        return returned[0]
+
+    monkeypatch.setattr(service, "product", capture)
+    monkeypatch.setattr(mcp_server, "_service", lambda: service)
+    result = mcp_server.product(["r1.1.1"], description_chars=40, redetect=False)
+
+    assert result is returned[0]
+    assert result["products"][0]["handle"] == "r2.1.1"
+
+
+def test_mcp_quote_returns_service_envelope_unchanged(data: DataStore, monkeypatch) -> None:
+    service = tool(data, FakeAdapter())
+    service.search([{"store": "https://one.test", "query": "valve"}])
+    original = service.quote
+    returned = []
+
+    def capture(*args, **kwargs):
+        returned.append(original(*args, **kwargs))
+        return returned[0]
+
+    monkeypatch.setattr(service, "quote", capture)
+    monkeypatch.setattr(mcp_server, "_service", lambda: service)
+    result = mcp_server.quote(
+        [{"store": "https://one.test", "lines": [{"item": "r1.1.1.2", "quantity": 2}]}],
+        destination={"country": "US", "postal_code": "94103"},
+        redetect=False,
+    )
+
+    assert result is returned[0]
+    assert result["stores"][0]["shipping_options"][0]["title"] == "Ground"
+
+
+def test_mcp_images_returns_service_paths_unchanged(tmp_path: Path, monkeypatch) -> None:
+    data = DataStore(tmp_path)
+    run = data.save_run({"stores": [{"store": "https://one.test", "items": [{"image_urls": ["https://images.test/1.jpg"]}]}]})
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"image", headers={"content-type": "image/jpeg"}, request=request)
+
+    service = CrossShop(data, lambda origin: httpx.MockTransport(handler))
+    original = service.images_for
+    returned = []
+
+    def capture(*args, **kwargs):
+        returned.append(original(*args, **kwargs))
+        return returned[0]
+
+    monkeypatch.setattr(service, "images_for", capture)
+    monkeypatch.setattr(mcp_server, "_service", lambda: service)
+    result = mcp_server.images(f"{run}.1.1", "1")
+
+    assert result is returned[0]
+    assert Path(result[0]).read_bytes() == b"image"
