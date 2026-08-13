@@ -17,10 +17,9 @@ function pkcs8Bytes(pem) {
   if (typeof pem !== "string") {
     throw new Error("DIRECTORY_PRIVATE_KEY_PEM Worker secret is required");
   }
-  const label = ["PRIVATE", "KEY"].join(" ");
-  const match = new RegExp(`^-----BEGIN ${label}-----\\s+([A-Za-z0-9+/=\\s]+)-----END ${label}-----$`).exec(pem.trim());
+  const match = /^-----BEGIN PRIVATE KEY-----\s+([A-Za-z0-9+/=\s]+)-----END PRIVATE KEY-----$/.exec(pem.trim());
   if (match === null) {
-    throw new Error("DIRECTORY_PRIVATE_KEY_PEM must contain a PKCS#8 key");
+    throw new Error("DIRECTORY_PRIVATE_KEY_PEM must contain a PKCS#8 private key");
   }
   const encoded = match[1].replaceAll(/\s/g, "");
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) {
