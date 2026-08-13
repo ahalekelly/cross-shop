@@ -1,0 +1,15 @@
+name = "web-bot-auth-key-directory"
+main = "worker.js"
+compatibility_date = "2026-07-01"
+workers_dev = false
+
+# Replace example.com with the domain that will host your key directory.
+routes = [
+  { pattern = "example.com/.well-known/http-message-signatures-directory*", zone_name = "example.com" },
+]
+
+[secrets]
+required = ["DIRECTORY_PRIVATE_KEY_PEM"]
+
+[observability]
+enabled = false

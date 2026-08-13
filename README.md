@@ -105,3 +105,5 @@ Missing marketplace credentials produce a structured setup error only when that 
 ## Web Bot Auth
 
 Shopify product URLs resolve through the public Ajax product endpoint; durable variant refs resolve through Storefront GraphQL. Unsigned Shopify HTTP is the default and normal public-tool behavior. `settings.web_bot_auth` opts into Ed25519 HTTP Message Signatures. The signer validates the key type and JWK thumbprint, creates fresh nonce and expiry material for every request, refuses pre-signed requests, and signs redirects only after the Shopify adapter verifies the same HTTPS authority and API path. A configured but missing or unreadable key is an `api_error` naming its path; the tool never silently falls back to unsigned traffic.
+
+Host your public key directory with the included [Cloudflare Worker](key-directory/README.md).
