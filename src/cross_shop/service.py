@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from cross_shop.adapters import bigcommerce, extra, magento, shopify, squarespace, woocommerce
-from cross_shop.adapters.marketplaces import AliExpress, Ebay, SerpApi, ShopifyGlobal
+from cross_shop.adapters.marketplaces import Amazon, AliExpress, Ebay, SerpApi, ShopifyGlobal, amazon_asin
 from cross_shop.core import (
     DetectedStore, MagentoDetectedStore, PositiveDetection, Session, StorefrontBotWall,
     StorefrontDetection, ToolError, UnknownStore, adapter_items, api_error, canonical_ref,
@@ -25,6 +25,8 @@ PSEUDO = {
     "https://shop.app": "shopify_global",
     "https://www.aliexpress.com": "aliexpress",
     "https://shopping.google.com": "google_shopping",
+    "https://amazon.com": "amazon",
+    "https://us.amazon.com": "amazon",
     "https://www.amazon.com": "amazon",
     "https://www.ebay.com": "ebay",
 }
@@ -70,7 +72,7 @@ class CrossShop:
             "squarespace": squarespace.Squarespace(),
             "wix": extra.Wix(), "ecwid": extra.Ecwid(), "sfcc": extra.Sfcc(),
             "aliexpress": AliExpress(), "google_shopping": SerpApi("google_shopping"),
-            "amazon": SerpApi("amazon"), "ebay": Ebay(settings),
+            "amazon": Amazon(), "ebay": Ebay(settings),
             "shopify_global": ShopifyGlobal(settings),
             "custom": BoundaryAdapter("custom"), "opencart": BoundaryAdapter("opencart"),
             "zen_cart": BoundaryAdapter("zen_cart"), "unknown": BoundaryAdapter("unknown"),
@@ -581,6 +583,13 @@ class CrossShop:
             reference = validate_ref(value)
             return {"store": reference["store"], "ref": reference}
         if isinstance(value, str) and value.startswith(("https://", "http://")):
+            parts = urlsplit(value)
+            if parts.hostname in {"amazon.com", "us.amazon.com", "www.amazon.com"}:
+                asin = amazon_asin(value)
+                return {
+                    "store": "https://www.amazon.com",
+                    "url": f"https://www.amazon.com/dp/{asin}",
+                }
             url = canonical_url(value)
             return {"store": url_origin(url), "url": url}
         if isinstance(value, str) and HANDLE.fullmatch(value):

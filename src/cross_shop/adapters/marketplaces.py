@@ -6,9 +6,13 @@ import hashlib
 import hmac
 import json
 import os
+import re
 from typing import Any
 from urllib.parse import quote, urlsplit
 from zoneinfo import ZoneInfo
+
+from bs4 import BeautifulSoup
+from bs4.element import Tag
 
 from cross_shop.core import (
     DetectedStore,
@@ -27,6 +31,18 @@ SERPAPI_URL = "https://serpapi.com/search.json"
 EBAY_API = "https://api.ebay.com"
 EBAY_TOKEN = "https://api.ebay.com/identity/v1/oauth2/token"
 SHOPIFY_GLOBAL_MCP = "https://catalog.shopify.com/api/ucp/mcp"
+AMAZON_ORIGIN = "https://www.amazon.com"
+AMAZON_AOD_PATH = "/gp/product/ajax/aodAjaxMain/ref=auto_load_aod"
+AMAZON_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/145.0.0.0 Safari/537.36"
+)
+ASIN_PATTERN = re.compile(r"[A-Z0-9]{10}")
+AMAZON_URL_ASIN_PATTERN = re.compile(
+    r"/(?:dp|gp/product)/([A-Z0-9]{10})(?:[/?]|$)", re.IGNORECASE
+)
+AMAZON_HOSTS = {"amazon.com", "us.amazon.com", "www.amazon.com"}
 ZERO_DIGIT_CURRENCIES = {
     "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW",
     "PYG", "RWF", "UGX", "VND", "VUV", "XAF", "XOF", "XPF",
@@ -204,7 +220,7 @@ class SerpApi:
             asin = value.get("asin")
             if not isinstance(asin, str):
                 raise ToolError("SerpApi Amazon result requires asin")
-            reference = item_ref(self.platform, {"asin": asin, "merchant_url": url})
+            reference = item_ref(self.platform, {"asin": amazon_asin(asin)})
         else:
             product_id = str(value.get("product_id", value.get("position", "")))
             if not product_id:
@@ -223,6 +239,264 @@ class SerpApi:
         del session, detection, lines, destination
         reason = "Quote the merchant storefront from the Google Shopping lead" if self.engine == "google_shopping" else "No anonymous Amazon cart API exists"
         return api_error(self.platform, "quote", reason)
+
+
+class Amazon:
+    platform = "amazon"
+
+    def search(self, session: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
+        return SerpApi("amazon").search(session, detection, query, limit, destination)
+
+    def product(self, session: Session, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
+        del detection, destination
+        reference = item.get("ref")
+        source = reference.get("asin") if isinstance(reference, dict) else item.get("url")
+        if not isinstance(source, str):
+            raise ToolError("Amazon product requires an ASIN ref or product URL")
+        asin = amazon_asin(source)
+        headers = {
+            "User-Agent": AMAZON_USER_AGENT,
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        bootstrap = session.request("GET", AMAZON_ORIGIN + "/", headers=headers)
+        if bootstrap.status_code not in {200, 202}:
+            raise ToolError(
+                f"Amazon anonymous-session bootstrap returned HTTP {bootstrap.status_code}"
+            )
+        response = session.request(
+            "GET",
+            AMAZON_ORIGIN + AMAZON_AOD_PATH,
+            params={"asin": asin, "pc": "dp"},
+            headers={
+                **headers,
+                "Accept": "text/html,*/*",
+                "Referer": f"{AMAZON_ORIGIN}/dp/{asin}",
+                "X-Requested-With": "XMLHttpRequest",
+            },
+        )
+        if response.status_code == 404:
+            return api_error(
+                self.platform,
+                "product",
+                "Amazon all-offers display is unavailable for this ASIN",
+                404,
+            )
+        if response.status_code != 200:
+            raise ToolError(
+                f"Amazon all-offers endpoint returned HTTP {response.status_code}; "
+                "do not retry or add a bypass"
+            )
+        retrieved_at = datetime.datetime.now(datetime.UTC).isoformat().replace(
+            "+00:00", "Z"
+        )
+        parsed = _amazon_product(asin, response.text, retrieved_at)
+        offers = parsed["offers"]
+        if not isinstance(offers, dict):
+            raise AssertionError("Amazon parser returned invalid offers")
+        featured = offers.get("featured")
+        price = (
+            featured.get("offer", {}).get("price")
+            if isinstance(featured, dict) and featured.get("status") == "available"
+            else None
+        )
+        return {
+            "title": parsed["title"],
+            "product_url": parsed["product_url"],
+            "image_urls": [parsed["image_url"]],
+            "available": offers.get("status") == "offers",
+            "item_ref": item_ref(self.platform, {"asin": asin}),
+            **({"price": price} if isinstance(price, dict) else {}),
+            "reviews": parsed["reviews"],
+            "offers": offers,
+            "delivery_scope": parsed["delivery_scope"],
+            "retrieved_at": parsed["retrieved_at"],
+        }
+
+    def quote(self, session: Session, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
+        del session, detection, lines, destination
+        return api_error(self.platform, "quote", "No anonymous Amazon cart API exists")
+
+
+def amazon_asin(product: str) -> str:
+    value = product.strip()
+    asin = value.upper()
+    if ASIN_PATTERN.fullmatch(asin):
+        return asin
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError as error:
+        raise ToolError("product must be a US Amazon ASIN or product URL") from error
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname not in AMAZON_HOSTS
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in {None, 443}
+    ):
+        raise ToolError("product must be a US Amazon ASIN or product URL")
+    match = AMAZON_URL_ASIN_PATTERN.search(parsed.path + "/")
+    if not match:
+        raise ToolError("Amazon product URL has no /dp/ or /gp/product/ ASIN")
+    return match.group(1).upper()
+
+
+def _amazon_product(asin: str, html: str, retrieved_at: str) -> dict[str, Any]:
+    soup = BeautifulSoup(html, "html.parser")
+    if soup.select_one("#aod-container") is None:
+        raise ToolError(
+            "Amazon all-offers response omitted #aod-container; blocked or schema changed"
+        )
+    title = _amazon_text(soup.select_one("#aod-asin-title-text"), "product title")
+    image = soup.select_one("#aod-asin-image-id")
+    if not isinstance(image, Tag):
+        raise ToolError("Amazon all-offers response omitted the product image")
+    image_url = image.get("src")
+    if not isinstance(image_url, str) or not _amazon_https_url(image_url):
+        raise ToolError("Amazon all-offers response had an invalid product image URL")
+    count_node = soup.select_one("#aod-total-offer-count")
+    if not isinstance(count_node, Tag):
+        raise ToolError("Amazon all-offers response omitted the other-offer count")
+    count_text = count_node.get("value")
+    if not isinstance(count_text, str) or not count_text.isdigit():
+        raise ToolError("Amazon all-offers response had an invalid other-offer count")
+    reported_count = int(count_text)
+    pinned = soup.select_one("#aod-pinned-offer")
+    if not isinstance(pinned, Tag):
+        raise ToolError("Amazon all-offers response omitted the featured-offer block")
+    other_nodes = soup.select("#aod-offer")
+    if reported_count < len(other_nodes):
+        raise ToolError("Amazon returned more other offers than its reported count")
+    featured_price = pinned.select_one(".apex-pricetopay-value")
+    no_featured = "No featured offers available" in pinned.get_text(" ", strip=True)
+    if featured_price is not None and no_featured:
+        raise ToolError("Amazon returned conflicting featured-offer states")
+    if featured_price is None and not no_featured:
+        raise ToolError("Amazon featured-offer block had no price or unavailable state")
+    other_offers = [_amazon_offer(node) for node in other_nodes]
+    if featured_price is None and not other_offers:
+        offers: dict[str, Any] = {"status": "no_offers"}
+    else:
+        featured: dict[str, Any]
+        if featured_price is None:
+            featured = {"status": "unavailable"}
+        else:
+            featured = {"status": "available", "offer": _amazon_offer(pinned)}
+        offers = {
+            "status": "offers",
+            "featured": featured,
+            "reported_other_offer_count": reported_count,
+            "other_offers_complete": reported_count == len(other_offers),
+            "other_offers": other_offers,
+        }
+    return {
+        "source": "Amazon all-offers display",
+        "status": "found",
+        "asin": asin,
+        "product_url": f"{AMAZON_ORIGIN}/dp/{asin}",
+        "title": title,
+        "image_url": image_url,
+        "reviews": _amazon_reviews(soup),
+        "offers": offers,
+        "delivery_scope": "anonymous_default_location",
+        "retrieved_at": retrieved_at,
+    }
+
+
+def _amazon_offer(node: Tag) -> dict[str, Any]:
+    condition = _amazon_text(node.select_one("#aod-offer-heading"), "offer condition")
+    price_node = node.select_one(".apex-pricetopay-value")
+    if not isinstance(price_node, Tag):
+        raise ToolError("Amazon offer omitted its price")
+    if node.select_one("form.AodAddToCart") is None:
+        raise ToolError("Amazon priced offer had no add-to-cart form")
+    sold_by = _amazon_party(node, "#aod-offer-soldBy", "seller")
+    ships_from = _amazon_party(node, "#aod-offer-shipsFrom", "shipper")
+    deliveries = [
+        {
+            "price_text": _amazon_attribute(delivery, "data-csa-c-delivery-price"),
+            "time": _amazon_attribute(delivery, "data-csa-c-delivery-time"),
+            "condition": _amazon_attribute(delivery, "data-csa-c-delivery-condition"),
+            "text": _amazon_text(delivery, "delivery promise"),
+        }
+        for delivery in node.select("[data-csa-c-delivery-price]")
+    ]
+    return {
+        "condition": condition,
+        "price": _amazon_price(price_node),
+        "ships_from": ships_from,
+        "sold_by": sold_by,
+        "delivery_promises": deliveries,
+    }
+
+
+def _amazon_price(node: Tag) -> dict[str, str]:
+    symbol = _amazon_text(node.select_one(".a-price-symbol"), "price symbol")
+    whole_text = _amazon_text(node.select_one(".a-price-whole"), "whole price")
+    fraction = _amazon_text(node.select_one(".a-price-fraction"), "fractional price")
+    whole = re.sub(r"[,.\s]", "", whole_text)
+    if symbol != "$" or not whole.isdigit() or re.fullmatch(r"\d{2}", fraction) is None:
+        raise ToolError("Amazon offer had an invalid USD price")
+    return {"amount": f"{int(whole)}.{fraction}", "currency": "USD"}
+
+
+def _amazon_party(node: Tag, selector: str, field: str) -> str:
+    block = node.select_one(selector)
+    if not isinstance(block, Tag):
+        raise ToolError(f"Amazon offer omitted its {field}")
+    value = block.select_one(".a-fixed-left-grid-col.a-col-right > a")
+    if value is None:
+        value = block.select_one(".a-fixed-left-grid-col.a-col-right > span")
+    return _amazon_text(value, field)
+
+
+def _amazon_reviews(soup: BeautifulSoup) -> dict[str, Any]:
+    star = soup.select_one("#aod-asin-reviews-star .a-icon-alt")
+    count = soup.select_one("#aod-asin-reviews-count-title")
+    if star is None and count is None:
+        return {"status": "unrated"}
+    if star is None or count is None:
+        raise ToolError("Amazon returned an incomplete product-rating block")
+    star_match = re.fullmatch(r"(\d(?:\.\d)?) out of 5 stars", _amazon_text(star, "rating"))
+    count_match = re.fullmatch(r"([\d,]+) ratings", _amazon_text(count, "rating count"))
+    if star_match is None or count_match is None:
+        raise ToolError("Amazon returned an invalid product-rating block")
+    rating = float(star_match.group(1))
+    rating_count = int(count_match.group(1).replace(",", ""))
+    if not 0 <= rating <= 5:
+        raise ToolError("Amazon returned a product rating outside 0–5")
+    return {"status": "rated", "rating": rating, "count": rating_count}
+
+
+def _amazon_text(node: Tag | None, field: str) -> str:
+    if not isinstance(node, Tag):
+        raise ToolError(f"Amazon response omitted {field}")
+    value = node.get_text(" ", strip=True)
+    if not value:
+        raise ToolError(f"Amazon response had an empty {field}")
+    return value
+
+
+def _amazon_attribute(node: Tag, name: str) -> str:
+    value = node.get(name)
+    if not isinstance(value, str):
+        raise ToolError(f"Amazon delivery promise omitted {name}")
+    return value.strip()
+
+
+def _amazon_https_url(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "https"
+        and parsed.hostname is not None
+        and parsed.username is None
+        and parsed.password is None
+        and port in {None, 443}
+    )
 
 
 class Ebay:

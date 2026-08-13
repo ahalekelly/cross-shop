@@ -114,11 +114,11 @@ def test_serpapi_amazon_maps_engine_and_results(monkeypatch: pytest.MonkeyPatch)
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.params["engine"] == "amazon"
         assert request.url.params["k"] == "coffee"
-        return httpx.Response(200, json={"search_metadata": {"status": "Success"}, "organic_results": [{"asin": "B123", "title": "Coffee", "link_clean": "https://www.amazon.com/dp/B123/", "extracted_price": 12.5, "thumbnail": "https://images.test/a.jpg"}]}, request=request)
+        return httpx.Response(200, json={"search_metadata": {"status": "Success"}, "organic_results": [{"asin": "B0CZP3CDSZ", "title": "Coffee", "link_clean": "https://www.amazon.com/dp/B0CZP3CDSZ/", "extracted_price": 12.5, "thumbnail": "https://images.test/a.jpg"}]}, request=request)
 
     session = Session(httpx.MockTransport(handler))
     result = SerpApi("amazon").search(session, detection("amazon", "https://www.amazon.com"), "coffee", 20, DESTINATION)
-    assert result["items"][0]["item_ref"] == {"platform": "amazon", "asin": "B123", "merchant_url": "https://www.amazon.com/dp/B123/"}
+    assert result["items"][0]["item_ref"] == {"platform": "amazon", "asin": "B0CZP3CDSZ"}
 
 
 def test_ebay_mints_one_token_and_includes_contextual_location() -> None:

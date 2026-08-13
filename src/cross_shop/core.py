@@ -317,7 +317,7 @@ REF_KEYS: dict[str, set[str]] = {
     "magento": {"sku"}, "bigcommerce": {"product_id", "product_url"},
     "squarespace": {"collection_url", "item_id", "sku"}, "wix": {"product_id"},
     "ecwid": {"product_id", "store_id"}, "sfcc": {"pid"}, "aliexpress": {"product_id"},
-    "google_shopping": {"product_id", "merchant_url"}, "amazon": {"asin", "merchant_url"},
+    "google_shopping": {"product_id", "merchant_url"}, "amazon": {"asin"},
     "ebay": {"item_id"}, "shopify_global": {"product_id"},
 }
 OPTIONAL_REF_KEYS: dict[str, set[str]] = {"shopify_global": {"variant_id"}}
@@ -380,6 +380,8 @@ def validate_ref(reference: object) -> dict[str, Any]:
         raise ToolError("ecwid ref has invalid product identity")
     if platform == "aliexpress" and not str(reference["product_id"]).isdecimal():
         raise ToolError("aliexpress ref has invalid product_id")
+    if platform == "amazon" and re.fullmatch(r"[A-Z0-9]{10}", str(reference["asin"])) is None:
+        raise ToolError("amazon ref has invalid asin")
     if platform == "shopify_global" and (
         not str(reference["product_id"]).startswith("gid://shopify/p/")
         or ("variant_id" in reference and not str(reference["variant_id"]).startswith("gid://shopify/ProductVariant/"))
