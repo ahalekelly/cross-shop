@@ -79,11 +79,3 @@ def quote(
 )
 def images(handle: str, selection: str | None = None) -> list[str]:
     return _service().images_for(handle, selection)
-
-
-def main() -> None:
-    mcp.run(transport="stdio")
-
-
-if __name__ == "__main__":
-    main()

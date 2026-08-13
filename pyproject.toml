@@ -16,7 +16,6 @@ dependencies = [
 
 [project.scripts]
 cross-shop = "cross_shop.cli:main"
-cross-shop-mcp = "cross_shop.mcp_server:main"
 
 [dependency-groups]
 dev = ["pytest>=8,<9"]

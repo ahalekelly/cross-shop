@@ -24,7 +24,7 @@ The stdio MCP server exposes `search`, `product`, `quote`, and `images` with the
 Register it with Claude Code:
 
 ```sh
-claude mcp add cross-shop -- uv run --project <package-dir> cross-shop-mcp
+claude mcp add cross-shop -- uv run --project <package-dir> cross-shop mcp
 ```
 
 For Pi, install [pi-mcp-adapter](https://www.npmjs.com/package/pi-mcp-adapter) (`pi install npm:pi-mcp-adapter`), then declare the server in any standard MCP config the adapter reads (project `.mcp.json`, `~/.config/mcp/mcp.json`, or `~/.agents/mcp.json`):
@@ -34,7 +34,7 @@ For Pi, install [pi-mcp-adapter](https://www.npmjs.com/package/pi-mcp-adapter) (
   "mcpServers": {
     "cross-shop": {
       "command": "uv",
-      "args": ["run", "--project", "<package-dir>", "cross-shop-mcp"]
+      "args": ["run", "--project", "<package-dir>", "cross-shop", "mcp"]
     }
   }
 }

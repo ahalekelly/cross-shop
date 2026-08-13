@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from cross_shop import cli
+from cross_shop import cli, mcp_server
 from cross_shop.adapters import bigcommerce, extra
 from cross_shop.core import DetectedStore, Session, ToolError, canonical_url, item_ref
 from cross_shop.service import CrossShop
@@ -318,6 +318,16 @@ def test_load_run_rejects_expired_run_without_gc(tmp_path: Path) -> None:
 
     with pytest.raises(ToolError, match="re-run search"):
         data.load_run(run_id)
+
+
+def test_cli_mcp_runs_the_stdio_server(monkeypatch) -> None:
+    transports = []
+    monkeypatch.setattr(
+        mcp_server.mcp, "run", lambda *, transport: transports.append(transport)
+    )
+
+    assert cli.main(["mcp"]) == 0
+    assert transports == ["stdio"]
 
 
 def test_cli_exit_codes_follow_api_errors(monkeypatch, tmp_path: Path, capsys) -> None:

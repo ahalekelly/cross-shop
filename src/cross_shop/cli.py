@@ -13,6 +13,11 @@ from cross_shop.storage import DataStore
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "mcp":
+        from cross_shop.mcp_server import mcp
+
+        mcp.run(transport="stdio")
+        return 0
     try:
         data = DataStore()
         if args.command == "config":
@@ -56,6 +61,7 @@ def _parser() -> argparse.ArgumentParser:
     images = commands.add_parser("images")
     images.add_argument("handle")
     images.add_argument("range", nargs="?")
+    commands.add_parser("mcp")
     config = commands.add_parser("config")
     config_commands = config.add_subparsers(dest="config_command", required=True)
     set_destination = config_commands.add_parser("set-destination")
