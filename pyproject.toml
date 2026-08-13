@@ -2,10 +2,21 @@
 name = "cross-shop"
 version = "0.1.0"
 description = "Batch product discovery, detail, and anonymous shipping quotes for public storefronts"
+authors = [{name = "Adrian Kelly"}]
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
+keywords = ["ecommerce", "marketplaces", "mcp", "shipping", "shopping"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Internet",
+]
 dependencies = [
   "beautifulsoup4>=4.14,<5",
   "cryptography>=45,<47",
@@ -16,6 +27,10 @@ dependencies = [
 
 [project.scripts]
 cross-shop = "cross_shop.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/ahalekelly/cross-shop"
+Repository = "https://github.com/ahalekelly/cross-shop"
 
 [dependency-groups]
 dev = ["pytest>=8,<9"]
