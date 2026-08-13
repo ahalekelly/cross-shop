@@ -10,7 +10,10 @@ from urllib.parse import urlsplit
 import httpx
 
 from cross_shop.adapters import bigcommerce, magento, shopify, squarespace, walled, woocommerce
-from cross_shop.adapters.marketplaces import Amazon, AliExpress, Ebay, SerpApi, ShopifyGlobal, amazon_asin
+from cross_shop.adapters.marketplaces import (
+    Amazon, AliExpress, BestBuy, Ebay, Etsy, SerpApi, ShopifyGlobal, Walmart,
+    marketplace_item_url,
+)
 from cross_shop.core import (
     DetectedStore, MagentoDetectedStore, PositiveDetection, Session, StorefrontBotWall,
     StorefrontDetection, ToolError, UnknownStore, adapter_items, api_error, canonical_ref,
@@ -29,6 +32,12 @@ PSEUDO = {
     "https://us.amazon.com": "amazon",
     "https://www.amazon.com": "amazon",
     "https://www.ebay.com": "ebay",
+    "https://walmart.com": "walmart",
+    "https://www.walmart.com": "walmart",
+    "https://bestbuy.com": "best_buy",
+    "https://www.bestbuy.com": "best_buy",
+    "https://etsy.com": "etsy",
+    "https://www.etsy.com": "etsy",
 }
 STOREFRONT_PLATFORMS = (
     "shopify", "woocommerce", "magento", "bigcommerce", "squarespace",
@@ -73,7 +82,8 @@ class CrossShop:
             "wix": walled.Wix(), "ecwid": walled.Ecwid(), "sfcc": walled.Sfcc(),
             "aliexpress": AliExpress(), "google_shopping": SerpApi("google_shopping"),
             "amazon": Amazon(), "ebay": Ebay(settings),
-            "shopify_global": ShopifyGlobal(settings),
+            "shopify_global": ShopifyGlobal(settings), "walmart": Walmart(),
+            "best_buy": BestBuy(settings), "etsy": Etsy(settings),
             "custom": BoundaryAdapter("custom"), "opencart": BoundaryAdapter("opencart"),
             "zen_cart": BoundaryAdapter("zen_cart"), "unknown": BoundaryAdapter("unknown"),
         }
@@ -583,13 +593,9 @@ class CrossShop:
             reference = validate_ref(value)
             return {"store": reference["store"], "ref": reference}
         if isinstance(value, str) and value.startswith(("https://", "http://")):
-            parts = urlsplit(value)
-            if parts.hostname in {"amazon.com", "us.amazon.com", "www.amazon.com"}:
-                asin = amazon_asin(value)
-                return {
-                    "store": "https://www.amazon.com",
-                    "url": f"https://www.amazon.com/dp/{asin}",
-                }
+            marketplace = marketplace_item_url(urlsplit(value).hostname, value)
+            if marketplace is not None:
+                return {"store": url_origin(marketplace), "url": marketplace}
             url = canonical_url(value)
             return {"store": url_origin(url), "url": url}
         if isinstance(value, str) and HANDLE.fullmatch(value):

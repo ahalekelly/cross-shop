@@ -88,7 +88,7 @@ def _config(data: DataStore, args: argparse.Namespace) -> dict[str, Any]:
             "data_dir": str(data.root),
             "credentials": {
                 key: isinstance(settings.get(key), dict)
-                for key in ("ebay", "shopify_global", "web_bot_auth")
+                for key in ("ebay", "bestbuy", "etsy", "shopify_global", "web_bot_auth")
             },
         }
     if args.config_command == "import-vendors":

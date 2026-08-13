@@ -7,23 +7,31 @@ import hmac
 import json
 import os
 import re
+from decimal import Decimal
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, urljoin, urlsplit
 from zoneinfo import ZoneInfo
 
+import httpx
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
 from cross_shop.core import (
     DetectedStore,
+    EtsyQuote,
     Session,
     ToolError,
     api_error,
+    bot_wall,
     item_ref,
     json_object,
     minor_money,
     money,
+    parse_item_ref,
+    quote_outcome,
+    shipping_option,
     url_origin,
+    wall_system,
 )
 
 ALIEXPRESS_URL = "https://api.taobao.com/router/rest"
@@ -43,6 +51,20 @@ AMAZON_URL_ASIN_PATTERN = re.compile(
     r"/(?:dp|gp/product)/([A-Z0-9]{10})(?:[/?]|$)", re.IGNORECASE
 )
 AMAZON_HOSTS = {"amazon.com", "us.amazon.com", "www.amazon.com"}
+WALMART_ORIGIN = "https://www.walmart.com"
+WALMART_HOSTS = {"walmart.com", "www.walmart.com"}
+WALMART_URL_ID_PATTERN = re.compile(r"/ip/(?:[^/]+/)?(\d+)/?")
+BESTBUY_API = "https://api.bestbuy.com/v1"
+BESTBUY_FIELDS = (
+    "sku,name,salePrice,regularPrice,manufacturer,modelNumber,onlineAvailability,"
+    "orderable,url,image,thumbnailImage,customerReviewAverage,customerReviewCount,"
+    "shippingCost,freeShipping"
+)
+ETSY_API = "https://openapi.etsy.com/v3/application"
+ETSY_ORIGIN = "https://www.etsy.com"
+ETSY_HOSTS = {"etsy.com", "www.etsy.com"}
+ETSY_URL_ID_PATTERN = re.compile(r"/listing/(\d+)(?:/.*)?")
+SERPAPI_ENGINES = {"google_shopping", "amazon", "walmart"}
 ZERO_DIGIT_CURRENCIES = {
     "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW",
     "PYG", "RWF", "UGX", "VND", "VUV", "XAF", "XOF", "XPF",
@@ -171,16 +193,21 @@ class AliExpress:
 
 class SerpApi:
     def __init__(self, engine: str) -> None:
+        if engine not in SERPAPI_ENGINES:
+            raise ToolError(f"Unsupported SerpApi engine {engine!r}")
         self.engine = engine
-        self.platform = "google_shopping" if engine == "google_shopping" else "amazon"
+        self.platform = engine
 
     def search(self, session: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
         del detection, destination
         key = os.environ.get("SERPAPI_API_KEY")
         if not key:
             return api_error(self.platform, "search", "Set SERPAPI_API_KEY")
-        params = {"engine": self.engine, "api_key": key}
-        params |= {"q": query, "location": "San Francisco, California, United States", "gl": "us", "hl": "en", "direct_link": "true"} if self.engine == "google_shopping" else {"k": query, "amazon_domain": "amazon.com", "language": "en_US"}
+        params = {"engine": self.engine, "api_key": key} | {
+            "google_shopping": {"q": query, "location": "San Francisco, California, United States", "gl": "us", "hl": "en", "direct_link": "true"},
+            "amazon": {"k": query, "amazon_domain": "amazon.com", "language": "en_US"},
+            "walmart": {"query": query},
+        }[self.engine]
         response = session.request("GET", SERPAPI_URL, params=params)
         payload = json_object(response, "SerpApi search")
         if response.status_code != 200 or "error" in payload:
@@ -209,6 +236,21 @@ class SerpApi:
     def _item(self, value: object) -> dict[str, Any]:
         if not isinstance(value, dict) or not isinstance(value.get("title"), str) or not value["title"]:
             raise ToolError("SerpApi result requires a title")
+        thumbnail = value.get("thumbnail")
+        images = [_https_url(thumbnail, "SerpApi thumbnail")] if thumbnail is not None else []
+        if self.engine == "walmart":
+            offer = value.get("primary_offer")
+            us_item_id = str(value.get("us_item_id", ""))
+            if not isinstance(offer, dict) or not us_item_id.isdecimal():
+                raise ToolError("SerpApi Walmart result requires us_item_id and primary_offer")
+            return {
+                "title": value["title"],
+                "price": money(offer.get("offer_price"), offer.get("currency")),
+                "product_url": f"{WALMART_ORIGIN}/ip/{us_item_id}",
+                "image_urls": images,
+                "item_ref": item_ref(self.platform, {"us_item_id": us_item_id}),
+                "lead": True,
+            }
         url = _https_url(
             value.get("direct_link") or value.get("link_clean") or value.get("link") or value.get("product_link"),
             "SerpApi merchant URL",
@@ -226,8 +268,6 @@ class SerpApi:
             if not product_id:
                 raise ToolError("SerpApi Shopping result requires product_id or position")
             reference = item_ref(self.platform, {"product_id": product_id, "merchant_url": url})
-        thumbnail = value.get("thumbnail")
-        images = [_https_url(thumbnail, "SerpApi thumbnail")] if thumbnail is not None else []
         return {"title": value["title"], "price": money(price, "USD"), "product_url": url, "image_urls": images, "item_ref": reference, "lead": True}
 
     def product(self, session: Session, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
@@ -317,28 +357,73 @@ class Amazon:
         return api_error(self.platform, "quote", "No anonymous Amazon cart API exists")
 
 
+def _marketplace_path(value: str, hosts: set[str], expectation: str) -> str:
+    """Marketplace product URLs are accepted only on their own HTTPS hosts."""
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError as error:
+        raise ToolError(expectation) from error
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname not in hosts
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in {None, 443}
+    ):
+        raise ToolError(expectation)
+    return parsed.path
+
+
 def amazon_asin(product: str) -> str:
     value = product.strip()
     asin = value.upper()
     if ASIN_PATTERN.fullmatch(asin):
         return asin
-    try:
-        parsed = urlsplit(value)
-        port = parsed.port
-    except ValueError as error:
-        raise ToolError("product must be a US Amazon ASIN or product URL") from error
-    if (
-        parsed.scheme != "https"
-        or parsed.hostname not in AMAZON_HOSTS
-        or parsed.username is not None
-        or parsed.password is not None
-        or port not in {None, 443}
-    ):
-        raise ToolError("product must be a US Amazon ASIN or product URL")
-    match = AMAZON_URL_ASIN_PATTERN.search(parsed.path + "/")
+    path = _marketplace_path(
+        value, AMAZON_HOSTS, "product must be a US Amazon ASIN or product URL"
+    )
+    match = AMAZON_URL_ASIN_PATTERN.search(path + "/")
     if not match:
         raise ToolError("Amazon product URL has no /dp/ or /gp/product/ ASIN")
     return match.group(1).upper()
+
+
+def walmart_item_id(product: str) -> str:
+    value = product.strip()
+    if value.isdecimal():
+        return value
+    expectation = "product must be a Walmart US item ID or /ip/ product URL"
+    match = WALMART_URL_ID_PATTERN.fullmatch(
+        _marketplace_path(value, WALMART_HOSTS, expectation)
+    )
+    if match is None:
+        raise ToolError("Walmart product URL has no /ip/ item ID")
+    return match.group(1)
+
+
+def etsy_listing_id(product: str) -> str:
+    value = product.strip()
+    if value.isdecimal():
+        return value
+    expectation = "product must be an Etsy listing ID or listing URL"
+    match = ETSY_URL_ID_PATTERN.fullmatch(
+        _marketplace_path(value, ETSY_HOSTS, expectation)
+    )
+    if match is None:
+        raise ToolError("Etsy product URL has no /listing/ ID")
+    return match.group(1)
+
+
+def marketplace_item_url(host: str | None, value: str) -> str | None:
+    """Marketplace identity lives in one ID, so tracking query strings are dropped."""
+    if host in AMAZON_HOSTS:
+        return f"{AMAZON_ORIGIN}/dp/{amazon_asin(value)}"
+    if host in WALMART_HOSTS:
+        return f"{WALMART_ORIGIN}/ip/{walmart_item_id(value)}"
+    if host in ETSY_HOSTS:
+        return f"{ETSY_ORIGIN}/listing/{etsy_listing_id(value)}"
+    return None
 
 
 def _amazon_product(asin: str, html: str, retrieved_at: str) -> dict[str, Any]:
@@ -497,6 +582,356 @@ def _amazon_https_url(value: str) -> bool:
         and parsed.password is None
         and port in {None, 443}
     )
+
+
+class Walmart:
+    platform = "walmart"
+
+    def search(self, session: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
+        return SerpApi("walmart").search(session, detection, query, limit, destination)
+
+    def product(self, session: Session, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
+        del detection, destination
+        reference = item.get("ref")
+        source = reference.get("us_item_id") if isinstance(reference, dict) else item.get("url")
+        if not isinstance(source, str):
+            raise ToolError("Walmart product requires a us_item_id ref or product URL")
+        us_item_id = walmart_item_id(source)
+        response = session.request(
+            "GET", f"{WALMART_ORIGIN}/ip/{us_item_id}", follow_redirects=True
+        )
+        if response.status_code == 404:
+            return api_error(
+                self.platform, "product", "Walmart has no item page for this ID", 404
+            )
+        product = _walmart_product(response.text)
+        if product is None:
+            system = wall_system(response)
+            if system is not None:
+                return bot_wall("product", self.platform, response, system)
+            raise ToolError(
+                "Walmart item page omitted its __NEXT_DATA__ product; "
+                f"schema changed (HTTP {response.status_code})"
+            )
+        return _walmart_item(product, us_item_id)
+
+    def quote(self, session: Session, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
+        del session, detection, lines, destination
+        return api_error(
+            self.platform,
+            "quote",
+            "Walmart derives its delivery location from the request IP and no anonymous "
+            "call moves it, so a destination shipping quote is unavailable",
+        )
+
+
+def _walmart_product(html: str) -> dict[str, Any] | None:
+    script = BeautifulSoup(html, "html.parser").select_one("script#__NEXT_DATA__")
+    if script is None:
+        return None
+    try:
+        node: Any = json.loads(script.get_text())
+    except json.JSONDecodeError as error:
+        raise ToolError("Walmart __NEXT_DATA__ is not JSON") from error
+    for key in ("props", "pageProps", "initialData", "data", "product"):
+        node = node.get(key) if isinstance(node, dict) else None
+    return node if isinstance(node, dict) else None
+
+
+def _walmart_item(product: dict[str, Any], us_item_id: str) -> dict[str, Any]:
+    name = product.get("name")
+    if str(product.get("usItemId")) != us_item_id or not isinstance(name, str) or not name:
+        raise ToolError("Walmart item page returned another item or omitted its name")
+    price_info = product.get("priceInfo")
+    current = price_info.get("currentPrice") if isinstance(price_info, dict) else None
+    if not isinstance(current, dict):
+        raise ToolError("Walmart item omitted its current price")
+    availability = product.get("availabilityStatusV2")
+    status = availability.get("value") if isinstance(availability, dict) else None
+    if not isinstance(status, str):
+        raise ToolError("Walmart item omitted its availability status")
+    canonical = product.get("canonicalUrl")
+    if not isinstance(canonical, str) or not canonical:
+        raise ToolError("Walmart item omitted its canonical URL")
+    product_url = urljoin(WALMART_ORIGIN, canonical)
+    if url_origin(product_url) != WALMART_ORIGIN:
+        raise ToolError("Walmart canonical URL left walmart.com")
+    image_info = product.get("imageInfo")
+    raw_images = image_info.get("allImages", []) if isinstance(image_info, dict) else []
+    if not isinstance(raw_images, list):
+        raise ToolError("Walmart item images must be an array")
+    return {
+        "title": name,
+        "price": money(current.get("price"), current.get("currencyUnit")),
+        "product_url": product_url,
+        "image_urls": [
+            _https_url(image.get("url"), "Walmart image URL")
+            for image in raw_images
+            if isinstance(image, dict)
+        ],
+        "available": status == "IN_STOCK",
+        "item_ref": item_ref("walmart", {"us_item_id": us_item_id}),
+        "delivery_scope": "anonymous_default_location",
+    }
+
+
+class BestBuy:
+    platform = "best_buy"
+
+    def __init__(self, settings: dict[str, Any]) -> None:
+        self.credentials = settings.get("bestbuy")
+
+    def _params(self) -> dict[str, str]:
+        if not isinstance(self.credentials, dict) or set(self.credentials) != {"api_key"}:
+            raise ToolError("Configure settings.bestbuy with api_key")
+        key = self.credentials["api_key"]
+        if not isinstance(key, str):
+            raise ToolError("Best Buy api_key must be a string")
+        return {"apiKey": key, "format": "json", "show": BESTBUY_FIELDS}
+
+    def search(self, session: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
+        del detection, destination
+        terms = "&".join(f"search={quote(term, safe='')}" for term in query.split())
+        response = session.request(
+            "GET",
+            f"{BESTBUY_API}/products(({terms}))",
+            params={**self._params(), "pageSize": str(limit)},
+        )
+        if response.status_code != 200:
+            return self._failure("search", response)
+        products = json_object(response, "Best Buy search").get("products")
+        if not isinstance(products, list):
+            raise ToolError("Best Buy search omitted its products array")
+        return {"kind": "search", "platform": self.platform, "items": [self._item(value) for value in products]}
+
+    def product(self, session: Session, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
+        del detection, destination
+        reference = item.get("ref")
+        sku = str(reference.get("sku", "")) if isinstance(reference, dict) else ""
+        if not sku.isdecimal():
+            raise ToolError("Best Buy product requires a numeric sku ref")
+        response = session.request(
+            "GET", f"{BESTBUY_API}/products/{sku}.json", params=self._params()
+        )
+        if response.status_code == 404:
+            return api_error(
+                self.platform, "product", "Best Buy has no product with this SKU", 404
+            )
+        if response.status_code != 200:
+            return self._failure("product", response)
+        return self._item(json_object(response, "Best Buy product"))
+
+    def _failure(self, stage: str, response: httpx.Response) -> dict[str, Any]:
+        if response.status_code == 403 and "validate your API Key" in response.text:
+            raise ToolError("Best Buy rejected settings.bestbuy.api_key")
+        return api_error(self.platform, stage, "Best Buy API request failed", response.status_code)
+
+    def _item(self, value: object) -> dict[str, Any]:
+        if not isinstance(value, dict) or not isinstance(value.get("name"), str) or not value["name"]:
+            raise ToolError("Best Buy product requires a name")
+        sku = str(value.get("sku", ""))
+        available = value.get("onlineAvailability")
+        if not sku.isdecimal() or not isinstance(available, bool):
+            raise ToolError("Best Buy product requires a numeric sku and onlineAvailability")
+        image = value.get("image")
+        free_shipping = value.get("freeShipping")
+        return {
+            "title": value["name"],
+            "price": money(value.get("salePrice"), "USD"),
+            "product_url": _https_url(value.get("url"), "Best Buy product URL"),
+            "image_urls": [_https_url(image, "Best Buy image URL")] if image is not None else [],
+            "available": available,
+            "item_ref": item_ref(self.platform, {"sku": sku}),
+            **({"shipping_options": [{
+                "scope": "catalog",
+                "free_shipping": free_shipping,
+                "shipping_cost": value.get("shippingCost"),
+            }]} if isinstance(free_shipping, bool) else {}),
+        }
+
+    def quote(self, session: Session, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
+        del session, detection, lines, destination
+        return api_error(
+            self.platform,
+            "quote",
+            "Best Buy publishes catalog-level freeShipping and shippingCost in product "
+            "detail; the API computes no destination shipping quote",
+        )
+
+
+class Etsy:
+    platform = "etsy"
+
+    def __init__(self, settings: dict[str, Any]) -> None:
+        self.credentials = settings.get("etsy")
+
+    def _headers(self) -> dict[str, str]:
+        if not isinstance(self.credentials, dict) or set(self.credentials) != {"keystring", "shared_secret"}:
+            raise ToolError("Configure settings.etsy with keystring and shared_secret")
+        keystring, secret = self.credentials["keystring"], self.credentials["shared_secret"]
+        if not isinstance(keystring, str) or not isinstance(secret, str):
+            raise ToolError("Etsy credentials must be strings")
+        return {"x-api-key": f"{keystring}:{secret}"}
+
+    def _payload(self, response: httpx.Response, stage: str, context: str) -> dict[str, Any]:
+        payload = json_object(response, context)
+        if response.status_code == 200:
+            return payload
+        error = payload.get("error")
+        if isinstance(error, str) and "API key" in error:
+            raise ToolError(f"Etsy rejected settings.etsy keystring and shared_secret: {error}")
+        return api_error(self.platform, stage, f"{context} failed", response.status_code)
+
+    def search(self, session: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
+        del detection, destination
+        response = session.request(
+            "GET",
+            ETSY_API + "/listings/active",
+            headers=self._headers(),
+            params={"keywords": query, "limit": str(limit)},
+        )
+        payload = self._payload(response, "search", "Etsy active listings")
+        if payload.get("status") == "api_error":
+            return payload
+        results = payload.get("results")
+        if not isinstance(results, list):
+            raise ToolError("Etsy active listings omitted their results")
+        return {"kind": "search", "platform": self.platform, "items": [self._item(value, []) for value in results]}
+
+    def product(self, session: Session, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
+        del detection, destination
+        reference = item.get("ref")
+        source = reference.get("listing_id") if isinstance(reference, dict) else item.get("url")
+        if not isinstance(source, (str, int)):
+            raise ToolError("Etsy product requires a listing_id ref or listing URL")
+        listing_id = etsy_listing_id(str(source))
+        headers = self._headers()
+        listing = self._payload(
+            session.request("GET", f"{ETSY_API}/listings/{listing_id}", headers=headers),
+            "product",
+            "Etsy listing",
+        )
+        if listing.get("status") == "api_error":
+            return listing
+        images = self._payload(
+            session.request("GET", f"{ETSY_API}/listings/{listing_id}/images", headers=headers),
+            "product",
+            "Etsy listing images",
+        )
+        if images.get("status") == "api_error":
+            return images
+        results = images.get("results")
+        if not isinstance(results, list):
+            raise ToolError("Etsy listing images omitted their results")
+        return self._item(listing, [
+            _https_url(image.get("url_fullxfull"), "Etsy image URL")
+            for image in results
+            if isinstance(image, dict)
+        ])
+
+    def _item(self, value: object, images: list[str]) -> dict[str, Any]:
+        if not isinstance(value, dict) or not isinstance(value.get("title"), str) or not value["title"]:
+            raise ToolError("Etsy listing requires a title")
+        listing_id = str(value.get("listing_id", ""))
+        quantity = value.get("quantity")
+        variations = value.get("has_variations")
+        if not listing_id.isdecimal() or isinstance(quantity, bool) or not isinstance(quantity, int) or not isinstance(variations, bool):
+            raise ToolError("Etsy listing omitted listing_id, quantity, or has_variations")
+        return {
+            "title": value["title"],
+            "description": value.get("description", ""),
+            "price": _etsy_money(value.get("price")),
+            "product_url": _https_url(value.get("url"), "Etsy listing URL"),
+            "image_urls": images,
+            "available": value.get("state") == "active" and quantity > 0,
+            "item_ref": item_ref(self.platform, {"listing_id": listing_id}),
+            # A listing with variations prices its cheapest offering; exact
+            # per-variation prices need OAuth the anonymous key cannot mint.
+            **({"variant": "Lowest-priced variation"} if variations else {}),
+        }
+
+    def quote(self, session: Session, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
+        del detection
+        quantities: dict[str, int] = {}
+        for line in lines:
+            listing_id = str(parse_item_ref(line["ref"], self.platform)["listing_id"])
+            quantities[listing_id] = quantities.get(listing_id, 0) + line["quantity"]
+        response = session.request(
+            "GET",
+            ETSY_API + "/listings/batch",
+            headers=self._headers(),
+            params={
+                "listing_ids": ",".join(quantities),
+                "includes": "BuyerPrice",
+                "buyer_country": destination["country"],
+            },
+        )
+        payload = self._payload(response, "quote", "Etsy buyer-price batch")
+        if payload.get("status") == "api_error":
+            return payload
+        results = payload.get("results")
+        if not isinstance(results, list) or len(results) != len(quantities):
+            raise ToolError("Etsy buyer-price batch did not return every requested listing")
+        subtotal, shipping, currencies = Decimal(0), Decimal(0), set()
+        undeliverable = False
+        for value in results:
+            if not isinstance(value, dict):
+                raise ToolError("Etsy buyer-price result must be an object")
+            listing_id = str(value.get("listing_id", ""))
+            price = value.get("buyer_price")
+            if listing_id not in quantities or not isinstance(price, dict):
+                raise ToolError("Etsy buyer-price result has no requested listing or buyer_price")
+            free = price.get("is_free_shipping")
+            if not isinstance(free, bool):
+                raise ToolError("Etsy buyer price omitted is_free_shipping")
+            base = _etsy_money(price.get("base_price"))
+            currencies.add(base["currency"])
+            subtotal += Decimal(base["amount"]) * quantities[listing_id]
+            cost = price.get("shipping_cost")
+            if cost is not None:
+                line_shipping = _etsy_money(cost)
+                currencies.add(line_shipping["currency"])
+                shipping += Decimal(line_shipping["amount"])
+            elif not free:
+                undeliverable = True
+        if len(currencies) != 1:
+            raise ToolError("Etsy buyer prices returned mixed currencies")
+        currency = currencies.pop()
+        context = EtsyQuote(delivery_scope="destination_country")
+        country = destination["country"]
+        options = [
+            shipping_option(
+                context,
+                "etsy-buyer-price",
+                f"Etsy buyer-price shipping to {country}, one shipment per listing",
+                "unavailable" if undeliverable else "delivery",
+                None if undeliverable else money(shipping, currency),
+            )
+        ]
+        return quote_outcome(
+            context,
+            options,
+            money(subtotal, currency),
+            no_quote_reason=f"no_etsy_shipping_to_{country}",
+        )
+
+
+def _etsy_money(value: object) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise ToolError("Etsy money must be an object")
+    amount, divisor, currency = value.get("amount"), value.get("divisor"), value.get("currency_code")
+    digits = len(str(divisor)) - 1 if type(divisor) is int and divisor > 0 else -1
+    if (
+        isinstance(amount, bool)
+        or not isinstance(amount, int)
+        or digits < 0
+        or 10**digits != divisor
+        or not isinstance(currency, str)
+    ):
+        raise ToolError(
+            "Etsy money requires an integer amount, a power-of-ten divisor, and a currency"
+        )
+    return minor_money(str(amount), currency, digits)
 
 
 class Ebay:

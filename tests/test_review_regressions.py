@@ -78,6 +78,8 @@ def test_config_show_reports_credentials_without_values(tmp_path: Path) -> None:
 
     assert result["credentials"] == {
         "ebay": True,
+        "bestbuy": False,
+        "etsy": False,
         "shopify_global": True,
         "web_bot_auth": True,
     }

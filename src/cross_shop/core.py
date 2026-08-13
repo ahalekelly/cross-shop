@@ -16,7 +16,7 @@ import httpx
 Platform = Literal[
     "shopify", "woocommerce", "magento", "bigcommerce", "squarespace",
     "wix", "ecwid", "sfcc", "aliexpress", "google_shopping", "amazon",
-    "ebay", "shopify_global",
+    "ebay", "shopify_global", "walmart", "best_buy", "etsy",
 ]
 Operation = Literal["search", "product", "quote"]
 Disposition = Literal["delivery", "pickup", "paid_later", "unavailable", "fallback"]
@@ -319,6 +319,11 @@ REF_KEYS: dict[str, set[str]] = {
     "ecwid": {"product_id", "store_id"}, "sfcc": {"pid"}, "aliexpress": {"product_id"},
     "google_shopping": {"product_id", "merchant_url"}, "amazon": {"asin"},
     "ebay": {"item_id"}, "shopify_global": {"product_id"},
+    "walmart": {"us_item_id"}, "best_buy": {"sku"}, "etsy": {"listing_id"},
+}
+DECIMAL_REF_KEYS = {
+    "aliexpress": "product_id", "walmart": "us_item_id",
+    "best_buy": "sku", "etsy": "listing_id",
 }
 OPTIONAL_REF_KEYS: dict[str, set[str]] = {"shopify_global": {"variant_id"}}
 
@@ -378,8 +383,9 @@ def validate_ref(reference: object) -> dict[str, Any]:
         or not str(reference["store_id"]).isdecimal()
     ):
         raise ToolError("ecwid ref has invalid product identity")
-    if platform == "aliexpress" and not str(reference["product_id"]).isdecimal():
-        raise ToolError("aliexpress ref has invalid product_id")
+    decimal_key = DECIMAL_REF_KEYS.get(platform)
+    if decimal_key is not None and not str(reference[decimal_key]).isdecimal():
+        raise ToolError(f"{platform} ref has invalid {decimal_key}")
     if platform == "amazon" and re.fullmatch(r"[A-Z0-9]{10}", str(reference["asin"])) is None:
         raise ToolError("amazon ref has invalid asin")
     if platform == "shopify_global" and (
@@ -523,7 +529,16 @@ def api_error(platform: str, stage: str, reason: str, http_status: int | None = 
 def wall_system(response: httpx.Response) -> str | None:
     body = response.text[:200_000].casefold()
     headers = " ".join(f"{key}:{value}" for key, value in response.headers.items()).casefold()
-    markers = (("cloudflare", ("cf-ray", "cloudflare", "just a moment", "/cdn-cgi/challenge-platform")), ("akamai", ("akamai", "reference #")), ("datadome", ("datadome",)), ("captcha", ("captcha", "verify you are human")))
+    markers = (
+        ("cloudflare", ("cf-ray", "cloudflare", "just a moment", "/cdn-cgi/challenge-platform")),
+        ("akamai", ("akamai", "reference #")),
+        ("datadome", ("datadome",)),
+        ("perimeterx", ("px-captcha", "_pxhd", "pxchk", "px-cloud.net")),
+        ("kasada", ("kasada", "x-kpsdk")),
+        ("imperva", ("incapsula", "visid_incap", "x-iinfo")),
+        ("aws_waf", ("awswaf",)),
+        ("captcha", ("captcha", "verify you are human")),
+    )
     for name, values in markers:
         if any(value in body or value in headers for value in values):
             return name
@@ -573,6 +588,10 @@ class BigCommerceQuote: platform: str = field(init=False, default="bigcommerce")
 class SquarespaceQuote:
     shipping_options_status: str
     platform: str = field(init=False, default="squarespace")
+@dataclass(frozen=True, kw_only=True)
+class EtsyQuote:
+    delivery_scope: str
+    platform: str = field(init=False, default="etsy")
 
 @dataclass(frozen=True, kw_only=True)
 class ShopifyShipping:
