@@ -1,5 +1,7 @@
 .venv/
+.uv-cache/
 __pycache__/
 .pytest_cache/
+dist/
 key-directory/.wrangler/
 key-directory/private.pem

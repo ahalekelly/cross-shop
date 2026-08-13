@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from cross_shop.adapters import bigcommerce, extra, magento, shopify, squarespace, woocommerce
+from cross_shop.adapters import bigcommerce, magento, shopify, squarespace, walled, woocommerce
 from cross_shop.adapters.marketplaces import Amazon, AliExpress, Ebay, SerpApi, ShopifyGlobal, amazon_asin
 from cross_shop.core import (
     DetectedStore, MagentoDetectedStore, PositiveDetection, Session, StorefrontBotWall,
@@ -34,7 +34,7 @@ STOREFRONT_PLATFORMS = (
     "shopify", "woocommerce", "magento", "bigcommerce", "squarespace",
     "wix", "ecwid", "sfcc",
 )
-PASSIVE_DETECTORS = (bigcommerce.detect, squarespace.detect, extra.detect)
+PASSIVE_DETECTORS = (bigcommerce.detect, squarespace.detect, walled.detect)
 
 
 class BoundaryAdapter:
@@ -70,7 +70,7 @@ class CrossShop:
             "magento": magento.Magento(),
             "bigcommerce": bigcommerce.BigCommerce(),
             "squarespace": squarespace.Squarespace(),
-            "wix": extra.Wix(), "ecwid": extra.Ecwid(), "sfcc": extra.Sfcc(),
+            "wix": walled.Wix(), "ecwid": walled.Ecwid(), "sfcc": walled.Sfcc(),
             "aliexpress": AliExpress(), "google_shopping": SerpApi("google_shopping"),
             "amazon": Amazon(), "ebay": Ebay(settings),
             "shopify_global": ShopifyGlobal(settings),

@@ -28,8 +28,8 @@ from cross_shop.core import (
     wall_system,
 )
 
-ExtraPlatform = Literal["wix", "ecwid", "sfcc"]
-QUOTE_BOUNDARIES: dict[ExtraPlatform, str] = {
+WalledPlatform = Literal["wix", "ecwid", "sfcc"]
+QUOTE_BOUNDARIES: dict[WalledPlatform, str] = {
     "wix": "Wix cart references and shipping state are mediated by storefront SDK logic",
     "ecwid": "Ecwid has no generalized public API for a destination-specific guest shipping quote",
     "sfcc": "SFCC guest checkout controllers, CSRF, and middleware are merchant-specific",
@@ -56,7 +56,7 @@ def detect(
 
     body = response.text[:2_000_000]
     lower = body.lower()
-    matches: dict[ExtraPlatform, list[str]] = {"wix": [], "ecwid": [], "sfcc": []}
+    matches: dict[WalledPlatform, list[str]] = {"wix": [], "ecwid": [], "sfcc": []}
 
     if response.headers.get("server", "").casefold() == "pepyaka":
         matches["wix"].append("Server: Pepyaka")
@@ -97,7 +97,7 @@ def detect(
 class _BrowserBoundary:
     """Wix, Ecwid, and SFCC publish catalog search but no anonymous exact-detail or cart API."""
 
-    platform: ExtraPlatform
+    platform: WalledPlatform
 
     def product(self, http: Session, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
         del http, detection, item, destination
@@ -115,7 +115,7 @@ class _BrowserBoundary:
 
 
 class Wix(_BrowserBoundary):
-    platform: ExtraPlatform = "wix"
+    platform: WalledPlatform = "wix"
 
     def search(self, http: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
         del destination
@@ -124,7 +124,7 @@ class Wix(_BrowserBoundary):
 
 
 class Ecwid(_BrowserBoundary):
-    platform: ExtraPlatform = "ecwid"
+    platform: WalledPlatform = "ecwid"
 
     def search(self, http: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
         del destination
@@ -133,7 +133,7 @@ class Ecwid(_BrowserBoundary):
 
 
 class Sfcc(_BrowserBoundary):
-    platform: ExtraPlatform = "sfcc"
+    platform: WalledPlatform = "sfcc"
 
     def search(self, http: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
         del destination
@@ -141,7 +141,7 @@ class Sfcc(_BrowserBoundary):
         return _sfcc_search(http, detection, query, limit)
 
 
-def _require_query(platform: ExtraPlatform, query: str) -> None:
+def _require_query(platform: WalledPlatform, query: str) -> None:
     if not query.strip():
         raise ToolError(f"{platform} search requires a nonempty query")
 
@@ -553,14 +553,14 @@ def _count(value: Any) -> bool:
     return not isinstance(value, bool) and isinstance(value, int) and value >= 0
 
 
-def _api_origin(detection: DetectedStore, platform: ExtraPlatform) -> str:
+def _api_origin(detection: DetectedStore, platform: WalledPlatform) -> str:
     if detection.platform != platform:
         raise ToolError(f"{platform} adapter received a different platform detection")
     return detection.api_origin
 
 
 def _wall(
-    response: httpx.Response, platform: ExtraPlatform
+    response: httpx.Response, platform: WalledPlatform
 ) -> dict[str, object] | None:
     system = wall_system(response)
     return None if system is None else bot_wall("search", platform, response, system)

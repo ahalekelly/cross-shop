@@ -10,7 +10,7 @@ import httpx
 import pytest
 
 from cross_shop import cli, mcp_server
-from cross_shop.adapters import bigcommerce, extra
+from cross_shop.adapters import bigcommerce, walled
 from cross_shop.core import DetectedStore, Session, ToolError, canonical_url, item_ref
 from cross_shop.service import CrossShop
 from cross_shop.storage import DataStore
@@ -88,7 +88,7 @@ def test_config_show_reports_credentials_without_values(tmp_path: Path) -> None:
 
 
 def test_boundary_product_never_returns_cached_or_guessed_search_data() -> None:
-    adapter = extra.Sfcc()
+    adapter = walled.Sfcc()
     detection = DetectedStore(
         origin="https://store.test",
         entry_url="https://store.test/",

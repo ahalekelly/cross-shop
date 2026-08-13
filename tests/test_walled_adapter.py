@@ -6,7 +6,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from cross_shop.adapters import extra
+from cross_shop.adapters import walled
 from cross_shop.core import DEFAULT_DESTINATION, DetectedStore, Session, StorefrontBotWall, ToolError, parse_item_ref
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -62,7 +62,7 @@ def test_ecwid_search_uses_initial_data_api_and_public_product_api() -> None:
         api_origin="https://app.ecwid.com",
         evidence=("test",),
     )
-    result = extra.Ecwid().search(Session(httpx.MockTransport(handler)), detection, "coffee", 20, DEFAULT_DESTINATION)
+    result = walled.Ecwid().search(Session(httpx.MockTransport(handler)), detection, "coffee", 20, DEFAULT_DESTINATION)
 
     assert [request.url.host for request in requests] == [
         "shop.example",
@@ -83,20 +83,20 @@ def test_detects_wix_ecwid_and_sfcc_signatures() -> None:
     ecwid = httpx.Response(200, content=fixture("platform-extra-ecwid-home.html"))
     sfcc = httpx.Response(200, headers={"x-dw-request-base-id": "base"}, text='<link href="/on/demandware.static/site.css">')
 
-    assert extra.detect(wix, "https://shop.example", "https://shop.example/").platform == "wix"
-    assert extra.detect(ecwid, "https://shop.example", "https://shop.example/").platform == "ecwid"
-    assert extra.detect(sfcc, "https://shop.example", "https://shop.example/").platform == "sfcc"
+    assert walled.detect(wix, "https://shop.example", "https://shop.example/").platform == "wix"
+    assert walled.detect(ecwid, "https://shop.example", "https://shop.example/").platform == "ecwid"
+    assert walled.detect(sfcc, "https://shop.example", "https://shop.example/").platform == "sfcc"
 
 
-def test_conflicting_extra_signatures_fail_loudly() -> None:
+def test_conflicting_walled_signatures_fail_loudly() -> None:
     response = httpx.Response(200, headers={"server": "Pepyaka"}, content=fixture("platform-extra-ecwid-home.html"))
     with pytest.raises(ToolError, match="Conflicting storefront signatures"):
-        extra.detect(response, "https://shop.example", "https://shop.example/")
+        walled.detect(response, "https://shop.example", "https://shop.example/")
 
 
-def test_challenge_beats_extra_platform_markers() -> None:
+def test_challenge_beats_walled_platform_markers() -> None:
     response = httpx.Response(403, headers={"server": "cloudflare", "cf-ray": "ray"}, content=fixture("platform-extra-wix-home.html"))
-    result = extra.detect(response, "https://shop.example", "https://shop.example/")
+    result = walled.detect(response, "https://shop.example", "https://shop.example/")
     assert isinstance(result, StorefrontBotWall)
 
 
@@ -110,7 +110,7 @@ def test_wix_search_bootstraps_token_and_maps_product() -> None:
         assert json.loads(payload["query"]["filter"]) == {"name": {"$contains": "wheel"}}
         return httpx.Response(200, content=fixture("platform-extra-wix-products.json"), request=request)
 
-    result = extra.Wix().search(Session(httpx.MockTransport(handler)), detected("wix"), "wheel", 20, DEFAULT_DESTINATION)
+    result = walled.Wix().search(Session(httpx.MockTransport(handler)), detected("wix"), "wheel", 20, DEFAULT_DESTINATION)
     product = result["items"][0]
     assert result["total"] == 1
     assert product["name"] == "Jurassic World - Dino Parade"
@@ -123,7 +123,7 @@ def test_wix_rejects_non_string_sku(sku: object) -> None:
     product = json.loads(fixture("platform-extra-wix-products.json"))["products"][0]
     product["sku"] = sku
     with pytest.raises(ToolError, match="sku must be a string or null"):
-        extra._wix_item(detected("wix"), product)
+        walled._wix_item(detected("wix"), product)
 
 
 def test_ecwid_rejects_untrusted_api_base() -> None:
@@ -133,7 +133,7 @@ def test_ecwid_rejects_untrusted_api_base() -> None:
         return httpx.Response(200, text='{"apiBaseUrl":"https://attacker.test/storefront/api/v1"}', request=request)
 
     with pytest.raises(ToolError, match="untrusted storefront API base URL"):
-        extra.Ecwid().search(Session(httpx.MockTransport(handler)), detected("ecwid", "https://app.ecwid.com"), "cake", 20, DEFAULT_DESTINATION)
+        walled.Ecwid().search(Session(httpx.MockTransport(handler)), detected("ecwid", "https://app.ecwid.com"), "cake", 20, DEFAULT_DESTINATION)
 
 
 @pytest.mark.parametrize("entry_url, expected", [("https://shop.example/", "/search"), ("https://shop.example/it_IT/", "/it_IT/search"), ("https://shop.example/us/home", "/us/search")])
@@ -142,7 +142,7 @@ def test_sfcc_search_is_relative_to_entry_url(entry_url: str, expected: str) -> 
         assert request.url.path == expected
         return httpx.Response(200, content=fixture("platform-extra-sfcc-search.html"), request=request)
 
-    result = extra.Sfcc().search(Session(httpx.MockTransport(handler)), detected("sfcc", entry_url=entry_url), "towel", 20, DEFAULT_DESTINATION)
+    result = walled.Sfcc().search(Session(httpx.MockTransport(handler)), detected("sfcc", entry_url=entry_url), "towel", 20, DEFAULT_DESTINATION)
     assert result["endpoint"] == f"https://shop.example{expected}"
 
 
@@ -150,7 +150,7 @@ def test_sfcc_returns_stable_refs_and_rejects_unrelated_html() -> None:
     def valid(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=fixture("platform-extra-sfcc-search.html"), request=request)
 
-    result = extra.Sfcc().search(Session(httpx.MockTransport(valid)), detected("sfcc"), "towel", 20, DEFAULT_DESTINATION)
+    result = walled.Sfcc().search(Session(httpx.MockTransport(valid)), detected("sfcc"), "towel", 20, DEFAULT_DESTINATION)
     assert [item["id"] for item in result["items"]] == ["12133488", "12133489"]
     assert parse_item_ref(result["items"][0]["item_ref"], "sfcc") == {"pid": "12133488"}
 
@@ -158,11 +158,11 @@ def test_sfcc_returns_stable_refs_and_rejects_unrelated_html() -> None:
         return httpx.Response(200, text="<html>unrelated</html>", request=request)
 
     with pytest.raises(ToolError, match="no SFCC storefront signature"):
-        extra.Sfcc().search(Session(httpx.MockTransport(invalid)), detected("sfcc"), "towel", 20, DEFAULT_DESTINATION)
+        walled.Sfcc().search(Session(httpx.MockTransport(invalid)), detected("sfcc"), "towel", 20, DEFAULT_DESTINATION)
 
 
-@pytest.mark.parametrize("adapter, api_origin", [(extra.Wix(), "https://shop.example"), (extra.Ecwid(), "https://app.ecwid.com"), (extra.Sfcc(), "https://shop.example")])
-def test_extra_quotes_are_explicit_browser_boundaries(adapter: object, api_origin: str) -> None:
+@pytest.mark.parametrize("adapter, api_origin", [(walled.Wix(), "https://shop.example"), (walled.Ecwid(), "https://app.ecwid.com"), (walled.Sfcc(), "https://shop.example")])
+def test_walled_quotes_are_explicit_browser_boundaries(adapter: object, api_origin: str) -> None:
     result = adapter.quote(Session(), detected(adapter.platform, api_origin), [], DEFAULT_DESTINATION)
     assert result["status"] == "api_error"
     assert result["browser_required"] is True
