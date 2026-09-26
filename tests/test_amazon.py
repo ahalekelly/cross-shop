@@ -128,6 +128,14 @@ def test_normalizes_product_and_offer_panel_without_session_material() -> None:
     assert "secret-token" not in json.dumps(result)
 
 
+def test_parses_the_singular_one_rating_count() -> None:
+    html = PRODUCT_HTML.replace("4.2 out of 5 stars", "5.0 out of 5 stars").replace(
+        "3,285 ratings", "1 rating"
+    )
+    result = _amazon_product("B099ZJ1MZG", html, RETRIEVED_AT)
+    assert result["reviews"] == {"status": "rated", "rating": 5.0, "count": 1}
+
+
 def test_models_no_offers_and_no_reviews_explicitly() -> None:
     result = _amazon_product("B0BM4274QM", NO_OFFERS_HTML, RETRIEVED_AT)
     assert result["reviews"] == {"status": "unrated"}

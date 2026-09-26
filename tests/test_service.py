@@ -51,7 +51,9 @@ class FakeAdapter:
         }
 
     def product(self, session, detection, identity, destination):
-        del session, detection, identity, destination
+        del session, detection, destination
+        if identity.get("url") == "https://one.test/products/broken":
+            raise ToolError("broken markup")
         return self.search(None, None, "detail", 20, {})
 
     def quote(self, session, detection, lines, destination):
@@ -132,6 +134,17 @@ def test_product_resolves_handle_and_emits_durable_refs(data: DataStore) -> None
         "variant_id": "gid://shopify/ProductVariant/1",
     }
     assert "image_urls" not in product
+
+
+def test_product_reports_one_items_parse_failure_only_for_that_item(data: DataStore) -> None:
+    result = tool(data, FakeAdapter()).product(
+        ["https://one.test/products/valve", "https://one.test/products/broken"]
+    )
+
+    valve, broken = result["products"]
+    assert valve["handle"] == "r1.1.1"
+    assert broken["status"] == "api_error"
+    assert broken["reason"] == "broken markup"
 
 
 def test_quote_resolves_variant_handle_and_preserves_quantity(data: DataStore) -> None:
