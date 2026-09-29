@@ -543,7 +543,7 @@ def _amazon_reviews(soup: BeautifulSoup) -> dict[str, Any]:
     if star is None or count is None:
         raise ToolError("Amazon returned an incomplete product-rating block")
     star_match = re.fullmatch(r"(\d(?:\.\d)?) out of 5 stars", _amazon_text(star, "rating"))
-    count_match = re.fullmatch(r"([\d,]+) ratings", _amazon_text(count, "rating count"))
+    count_match = re.fullmatch(r"([\d,]+) ratings?", _amazon_text(count, "rating count"))
     if star_match is None or count_match is None:
         raise ToolError("Amazon returned an invalid product-rating block")
     rating = float(star_match.group(1))

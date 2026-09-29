@@ -407,18 +407,10 @@ class CrossShop:
             for index, item in jobs:
                 identity = _item_identity(item)
                 if identity not in fetched:
-                    raw = adapter.product(session, detection, item, self.data.destination())
-                    if raw.get("status") == "api_error":
-                        fetched[identity] = raw
-                    else:
-                        variants = [normalize_variant(value, detection.platform, detection.origin) for value in adapter_items(raw)]
-                        if not variants:
-                            fetched[identity] = api_error(detection.platform, "product", "Product was not found")
-                        else:
-                            product = _new_product(variants[0])
-                            for variant in variants[1:]:
-                                _append_variant(product, variant)
-                            fetched[identity] = product
+                    try:
+                        fetched[identity] = self._fetch_product(adapter, session, detection, item)
+                    except ToolError as error:
+                        fetched[identity] = api_error(detection.platform, "product", str(error))
                 results.append((index, identity, fetched[identity]))
             metadata = {
                 "detection": public_detection(detection, debug),
@@ -448,6 +440,18 @@ class CrossShop:
             ]
         finally:
             session.close()
+
+    def _fetch_product(self, adapter: Any, session: Session, detection: PositiveDetection, item: dict[str, Any]) -> dict[str, Any]:
+        raw = adapter.product(session, detection, item, self.data.destination())
+        if raw.get("status") == "api_error":
+            return raw
+        variants = [normalize_variant(value, detection.platform, detection.origin) for value in adapter_items(raw)]
+        if not variants:
+            return api_error(detection.platform, "product", "Product was not found")
+        product = _new_product(variants[0])
+        for variant in variants[1:]:
+            _append_variant(product, variant)
+        return product
 
     def _quote_group(
         self,
