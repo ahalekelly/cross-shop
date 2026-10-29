@@ -17,7 +17,8 @@ def _service() -> CrossShop:
 
 @mcp.tool(
     description=(
-        "Search 1–100 {store, query} entries. Results use r<run>.<s>.<i> item "
+        "Search 1–100 {store, query} entries; store is a storefront domain or HTTPS "
+        "URL such as https://www.walmart.com. Results use r<run>.<s>.<i> item "
         "handles; append .<v> for a variant, then pass handles to product or quote."
     )
 )

@@ -221,6 +221,8 @@ def normalize_store_url(value: str) -> str:
     parts = urlsplit(url)
     if parts.scheme != "https" or not parts.hostname or parts.username is not None or parts.password is not None:
         raise ToolError("Store must be an absolute HTTPS URL without credentials")
+    if "." not in parts.hostname and ":" not in parts.hostname:
+        raise ToolError(f"Store must be a storefront domain or HTTPS URL such as https://www.walmart.com, not {value!r}")
     if parts.query or parts.fragment:
         raise ToolError("Store URL must not contain a query or fragment")
     host = f"[{parts.hostname.lower()}]" if ":" in parts.hostname else parts.hostname.encode("idna").decode().lower()

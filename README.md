@@ -53,7 +53,7 @@ Pi can read the same config through [pi-mcp-adapter](https://www.npmjs.com/packa
 
 ## Commands
 
-- `search <entries-json> [--limit 20] [--description-chars 300] [--redetect] [--debug]` accepts 1–100 `{store,query}` entries. Repeated stores share one session and detection, and products are deduplicated.
+- `search <entries-json> [--limit 20] [--description-chars 300] [--redetect] [--debug]` accepts 1–100 `{store,query}` entries; `store` is a storefront domain or HTTPS URL. Repeated stores share one session and detection, and products are deduplicated.
 - `product <items-json> [--description-chars 2000] [--redetect] [--debug]` accepts 1–100 product URLs, run handles, or ref objects.
 - `quote <quotes-json> [--destination <json>] [--redetect] [--debug]` accepts 1–20 stores with 1–20 lines each. One cart contains every line for a store entry.
 - `images <item-handle> [N|START:END]` downloads at most ten cached product images and prints absolute paths.
