@@ -248,7 +248,7 @@ class CrossShop:
     ) -> dict[str, Any]:
         return {
             "store": origin,
-            "input": {"store": jobs[0]["store"]},
+            "input": _search_input(jobs),
             **api_error("unknown", "search", _unexpected(error)),
         }
 
@@ -346,7 +346,7 @@ class CrossShop:
         session = self._session(origin)
         try:
             detection = self._detect(session, jobs[0]["store"], redetect)
-            base: dict[str, Any] = {"store": detection.origin, "input": {"store": jobs[0]["store"], **({"query": jobs[0]["query"]} if len(jobs) == 1 else {"queries": [job["query"] for job in jobs]})}, "detection": public_detection(detection, debug)}
+            base: dict[str, Any] = {"store": detection.origin, "input": _search_input(jobs), "detection": public_detection(detection, debug)}
             if not isinstance(detection, (DetectedStore, MagentoDetectedStore)):
                 return {**base, **api_error("unknown", "detect", detection.kind), **({"evidence": session.evidence} if debug else {})}
             adapter = self.adapters[detection.platform]
@@ -386,7 +386,7 @@ class CrossShop:
             }
         except ToolError as error:
             platform = locals().get("detection").platform if isinstance(locals().get("detection"), (DetectedStore, MagentoDetectedStore)) else "unknown"
-            return {"store": origin, "input": {"store": jobs[0]["store"]}, **api_error(platform, "search", str(error)), **({"evidence": session.evidence} if debug else {})}
+            return {"store": origin, "input": _search_input(jobs), **api_error(platform, "search", str(error)), **({"evidence": session.evidence} if debug else {})}
         finally:
             session.close()
 
@@ -774,6 +774,10 @@ def _metadata(run_id: str | None = None) -> dict[str, Any]:
 
 def _omit(value: dict[str, Any]) -> dict[str, Any]:
     return {key: item for key, item in value.items() if item is not None and item != [] and item != ""}
+
+
+def _search_input(jobs: list[dict[str, str]]) -> dict[str, Any]:
+    return {"store": jobs[0]["store"], **({"query": jobs[0]["query"]} if len(jobs) == 1 else {"queries": [job["query"] for job in jobs]})}
 
 
 def _search_entries(value: object) -> list[dict[str, str]]:
