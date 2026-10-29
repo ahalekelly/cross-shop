@@ -230,6 +230,18 @@ def test_one_store_error_does_not_remove_other_store(tmp_path: Path) -> None:
     assert [store["status"] for store in result["stores"]] == ["api_error", "ok"]
 
 
+def test_search_rejects_a_store_name_that_is_not_a_domain(data: DataStore) -> None:
+    with pytest.raises(ToolError, match="storefront domain or HTTPS URL"):
+        tool(data, FakeAdapter()).search([{"store": "walmart", "query": "oats"}])
+
+
+def test_search_error_rows_echo_the_query(tmp_path: Path) -> None:
+    unreachable = lambda origin: httpx.MockTransport(lambda request: (_ for _ in ()).throw(httpx.ConnectError("timed out")))
+    result = tool(DataStore(tmp_path), FakeAdapter(), unreachable).search([{"store": "https://two.test", "query": "oats"}])
+    assert result["stores"][0]["status"] == "api_error"
+    assert result["stores"][0]["input"] == {"store": "https://two.test", "query": "oats"}
+
+
 def test_run_counter_is_monotonic_under_concurrent_allocation(tmp_path: Path) -> None:
     stores = [DataStore(tmp_path) for _ in range(10)]
     with ThreadPoolExecutor(max_workers=10) as pool:
