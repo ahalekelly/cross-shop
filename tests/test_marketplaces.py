@@ -225,11 +225,11 @@ def test_shopify_global_uses_current_ucp_contract() -> None:
         assert str(request.url) == "https://catalog.shopify.com/api/ucp/mcp"
         return httpx.Response(200, json=payload, request=request)
 
-    adapter = ShopifyGlobal({"shopify_global": {"profile_url": "https://agent.test/profile.json"}})
+    adapter = ShopifyGlobal()
     result = adapter.search(Session(httpx.MockTransport(handler)), detection("shopify_global", "https://shop.app"), "boot", 10, DESTINATION)
     arguments = bodies[0]["params"]["arguments"]
     assert bodies[0]["params"]["name"] == "search_catalog"
-    assert arguments["meta"]["ucp-agent"]["profile"] == "https://agent.test/profile.json"
+    assert arguments["meta"]["ucp-agent"]["profile"] == "https://cdn.jsdelivr.net/gh/ahalekelly/cross-shop@main/ucp-profile.json"
     assert arguments["catalog"]["filters"]["ships_to"] == {"country": "US", "region": "CA", "postal_code": "94103"}
     assert result["items"][0]["price"] == {"amount": "40.00", "currency": "USD"}
     assert result["items"][0]["item_ref"] == {"platform": "shopify_global", "product_id": "gid://shopify/p/abc", "variant_id": "gid://shopify/ProductVariant/1"}
@@ -241,7 +241,6 @@ def test_shopify_global_uses_current_ucp_contract() -> None:
 
 def test_shopify_global_search_writes_handles_and_shopify_merchants(tmp_path: Path) -> None:
     data = DataStore(tmp_path)
-    data.settings_path.write_text(json.dumps({"shopify_global": {"profile_url": "https://agent.test/profile.json"}}))
     payload = json.loads((FIXTURES / "marketplace-shopify-global-search.json").read_text())
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -273,7 +272,7 @@ def test_shopify_global_product_uses_get_product_ucp_shape() -> None:
         assert body["params"]["arguments"]["catalog"]["id"] == "gid://shopify/p/abc"
         return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {"structuredContent": {"product": product}}}, request=request)
 
-    result = ShopifyGlobal({"shopify_global": {"profile_url": "https://agent.test/profile.json"}}).product(
+    result = ShopifyGlobal().product(
         Session(httpx.MockTransport(handler)),
         detection("shopify_global", "https://shop.app"),
         {"ref": {"platform": "shopify_global", "store": "https://shop.app", "product_id": "gid://shopify/p/abc"}},
@@ -288,7 +287,7 @@ def test_shopify_global_ucp_application_error_is_not_empty_success() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {"structuredContent": {"ucp": {"status": "error"}, "messages": [{"content": "profile rejected"}]}}}, request=request)
 
-    result = ShopifyGlobal({"shopify_global": {"profile_url": "https://agent.test/profile.json"}}).search(
+    result = ShopifyGlobal().search(
         Session(httpx.MockTransport(handler)),
         detection("shopify_global", "https://shop.app"),
         "boot",
@@ -333,6 +332,3 @@ def test_serpapi_provider_error_redacts_api_key() -> None:
     assert "[redacted]" in result["reason"]
 
 
-def test_shopify_global_requires_profile_url() -> None:
-    with pytest.raises(ToolError, match="profile_url"):
-        ShopifyGlobal({}).search(Session(httpx.MockTransport(lambda request: None)), detection("shopify_global", "https://shop.app"), "boot", 10, DESTINATION)

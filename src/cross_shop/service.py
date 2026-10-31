@@ -82,7 +82,7 @@ class CrossShop:
             "wix": walled.Wix(), "ecwid": walled.Ecwid(), "sfcc": walled.Sfcc(),
             "aliexpress": AliExpress(settings), "google_shopping": SerpApi("google_shopping", settings),
             "amazon": Amazon(settings), "ebay": Ebay(settings),
-            "shopify_global": ShopifyGlobal(settings), "walmart": Walmart(settings),
+            "shopify_global": ShopifyGlobal(), "walmart": Walmart(settings),
             "best_buy": BestBuy(settings), "etsy": Etsy(settings),
             "custom": BoundaryAdapter("custom"), "opencart": BoundaryAdapter("opencart"),
             "zen_cart": BoundaryAdapter("zen_cart"), "unknown": BoundaryAdapter("unknown"),

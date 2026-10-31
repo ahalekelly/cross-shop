@@ -40,6 +40,8 @@ SERPAPI_URL = "https://serpapi.com/search.json"
 EBAY_API = "https://api.ebay.com"
 EBAY_TOKEN = "https://api.ebay.com/identity/v1/oauth2/token"
 SHOPIFY_GLOBAL_MCP = "https://catalog.shopify.com/api/ucp/mcp"
+# UCP requires a profile served as JSON with Cache-Control: public; GitHub raw and Pages send neither.
+SHOPIFY_GLOBAL_PROFILE = "https://cdn.jsdelivr.net/gh/ahalekelly/cross-shop@main/ucp-profile.json"
 AMAZON_ORIGIN = "https://www.amazon.com"
 AMAZON_AOD_PATH = "/gp/product/ajax/aodAjaxMain/ref=auto_load_aod"
 AMAZON_USER_AGENT = (
@@ -1119,15 +1121,9 @@ def _ebay_returns(terms: object) -> str | None:
 class ShopifyGlobal:
     platform = "shopify_global"
 
-    def __init__(self, settings: dict[str, Any]) -> None:
-        value = settings.get("shopify_global")
-        self.profile_url = value.get("profile_url") if isinstance(value, dict) else None
-
     def _call(self, session: Session, name: str, catalog: dict[str, Any]) -> dict[str, Any]:
-        if not isinstance(self.profile_url, str):
-            raise ToolError("Configure settings.shopify_global.profile_url with a public UCP agent profile")
         arguments = {
-            "meta": {"ucp-agent": {"profile": self.profile_url}},
+            "meta": {"ucp-agent": {"profile": SHOPIFY_GLOBAL_PROFILE}},
             "catalog": catalog,
         }
         response = session.request(

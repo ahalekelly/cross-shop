@@ -65,7 +65,6 @@ def test_config_show_reports_credentials_without_values(tmp_path: Path) -> None:
             {
                 "destination": {"country": "US", "postal_code": "94103"},
                 "ebay": {"client_id": "client", "client_secret": "secret"},
-                "shopify_global": {"profile_url": "https://agent.test/profile"},
                 "web_bot_auth": {
                     "private_key_path": "/secret/key.pem",
                     "key_directory_url": "https://agent.test/keys",
@@ -82,7 +81,6 @@ def test_config_show_reports_credentials_without_values(tmp_path: Path) -> None:
         "ebay": True,
         "bestbuy": False,
         "etsy": False,
-        "shopify_global": True,
         "web_bot_auth": True,
     }
     encoded = json.dumps(result)

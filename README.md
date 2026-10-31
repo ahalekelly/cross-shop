@@ -72,7 +72,7 @@ These origins use marketplace adapters without live platform detection:
 
 | Origin | Backend | Detail and quote boundary |
 | --- | --- | --- |
-| `https://shop.app` | Shopify Global Catalog UCP MCP | Detail preserves seller domains and handoff links; quote a merchant offer |
+| `https://shop.app` | Shopify Global Catalog UCP MCP, identified by this repo's [`ucp-profile.json`](ucp-profile.json) | Detail preserves seller domains and handoff links; quote a merchant offer |
 | `https://www.aliexpress.com` | AliExpress Affiliate API | Affiliate search only; no quote |
 | `https://shopping.google.com` | SerpApi Google Shopping | Unverified leads; quote the merchant |
 | `https://www.amazon.com` | SerpApi search and Amazon all-offers display detail | Exact ASIN detail; no anonymous cart API |
@@ -103,8 +103,7 @@ Destination precedence is `--destination`, then `settings.json`, then the built-
   "aliexpress": {"app_key":"…","app_secret":"…"},
   "ebay": {"client_id":"…","client_secret":"…"},
   "bestbuy": {"api_key":"…"},
-  "etsy": {"keystring":"…","shared_secret":"…"},
-  "shopify_global": {"profile_url":"https://agent.example/profile.json"}
+  "etsy": {"keystring":"…","shared_secret":"…"}
 }
 ```
 
@@ -115,7 +114,6 @@ Destination precedence is `--destination`, then `settings.json`, then the built-
 - `settings.ebay.client_id` and `settings.ebay.client_secret`: eBay Developers Program production Browse API keyset. eBay keeps a new production keyset disabled, and rejects its token requests as `invalid_client`, until you subscribe to marketplace account-deletion notifications or claim the exemption for apps that don't store eBay data.
 - `settings.bestbuy.api_key`: Best Buy Developer API key, issued only to company-domain email addresses. Its terms cap caching at 72 hours and forbid use on behalf of other retailers.
 - `settings.etsy.keystring` and `settings.etsy.shared_secret`: Etsy Open API v3 app credentials from the approval-gated registration at etsy.com/developers/register.
-- `settings.shopify_global.profile_url`: public UCP agent profile required by Shopify's Global Catalog contract.
 
 Missing marketplace credentials produce a structured setup error only when that marketplace is requested.
 
