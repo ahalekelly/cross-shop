@@ -446,7 +446,7 @@ def normalize_variant(value: dict[str, Any], platform: str, origin: str) -> dict
         name = " / ".join(str(item.get("label", item.get("value", ""))) for item in options if isinstance(item, dict)) or "Default"
     return {
         "title": title, "description": value.get("description", value.get("short_description", "")),
-        "url": _handoff_url(url) if url and platform in {"shopify_global", "sfcc"} else canonical_url(url) if url else "",
+        "url": _handoff_url(url) if url and platform in {"shopify_global", "sfcc", "google_shopping"} else canonical_url(url) if url else "",
         "available": value.get("available"),
         "name": name, "options": options, "ref": reference,
         "price": money_amount(raw_price), "max_price": money_amount(raw_max_price),

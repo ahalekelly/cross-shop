@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from cross_shop import mcp_server
-from cross_shop.core import DetectedStore, ToolError, canonical_ref, description, item_ref, validate_ref
+from cross_shop.core import DetectedStore, ToolError, canonical_ref, description, item_ref, normalize_variant, validate_ref
 from cross_shop.service import CrossShop
 from cross_shop.storage import DataStore, DEFAULT_DESTINATION, validate_destination
 
@@ -310,6 +310,12 @@ def test_refs_are_strict_and_canonically_equal() -> None:
         validate_ref({**ref, "extra": True})
     with pytest.raises(ToolError, match="unknown platform"):
         validate_ref({"platform": "nope", "store": "https://one.test"})
+
+
+def test_google_shopping_lead_keeps_query_in_handoff_url() -> None:
+    url = "https://www.google.com/search?ibp=oshop&q=valve&prds=productid:1"
+    variant = normalize_variant({"title": "Valve", "product_url": url, "item_ref": {"platform": "google_shopping", "product_id": "1", "merchant_url": url}}, "google_shopping", "https://shopping.google.com")
+    assert variant["url"] == url
 
 
 def test_destination_and_description_validation() -> None:
