@@ -15,7 +15,6 @@
           "id": "gid://shopify/p/abc",
           "title": "Trail Boot",
           "description": {"html": "<p>Waterproof trail boot.</p>"},
-          "url": "https://merchant.test/products/trail-boot",
           "price_range": {
             "min": {"amount": 4000, "currency": "USD"},
             "max": {"amount": 4500, "currency": "USD"}

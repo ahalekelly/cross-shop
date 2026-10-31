@@ -1208,9 +1208,6 @@ class ShopifyGlobal:
             and item.get("type") == "image"
             and isinstance(item.get("url"), str)
         ]
-        product_url = value.get("url")
-        if not isinstance(product_url, str):
-            raise ToolError("Shopify Global Catalog product omitted its merchant URL")
         items = []
         for variant in variants:
             if (
@@ -1262,6 +1259,10 @@ class ShopifyGlobal:
         price_range = value.get("price_range")
         if not isinstance(price_range, dict):
             raise ToolError("Shopify Global Catalog product omitted price_range")
+        # Merchant URLs live on variants; only a variantless product carries its own.
+        product_url = value.get("url")
+        if not isinstance(product_url, str):
+            raise ToolError("Shopify Global Catalog product without variants omitted its merchant URL")
         return [{
             "title": value["title"], "description": text,
             "price": _ucp_money(price_range.get("min")),
