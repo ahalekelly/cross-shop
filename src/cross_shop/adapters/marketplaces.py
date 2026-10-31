@@ -5,7 +5,6 @@ import datetime
 import hashlib
 import hmac
 import json
-import os
 import re
 import time
 from decimal import Decimal
@@ -125,12 +124,14 @@ def _ucp_money(value: object) -> dict[str, str]:
 class AliExpress:
     platform = "aliexpress"
 
+    def __init__(self, settings: dict[str, Any]) -> None:
+        self.credentials = settings.get("aliexpress")
+
     def search(self, session: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
         del detection
-        app_key = os.environ.get("ALIEXPRESS_APP_KEY")
-        secret = os.environ.get("ALIEXPRESS_APP_SECRET")
-        if not app_key or not secret:
-            return api_error(self.platform, "search", "Set ALIEXPRESS_APP_KEY and ALIEXPRESS_APP_SECRET")
+        if not isinstance(self.credentials, dict) or set(self.credentials) != {"app_key", "app_secret"}:
+            return api_error(self.platform, "search", "Configure settings.aliexpress with app_key and app_secret")
+        app_key, secret = self.credentials["app_key"], self.credentials["app_secret"]
         params = {
             "app_key": app_key, "format": "json", "keywords": query,
             "method": "aliexpress.affiliate.product.query", "page_no": "1",
@@ -194,17 +195,18 @@ class AliExpress:
 
 
 class SerpApi:
-    def __init__(self, engine: str) -> None:
+    def __init__(self, engine: str, settings: dict[str, Any]) -> None:
         if engine not in SERPAPI_ENGINES:
             raise ToolError(f"Unsupported SerpApi engine {engine!r}")
         self.engine = engine
         self.platform = engine
+        self.credentials = settings.get("serpapi")
 
     def search(self, session: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
         del detection, destination
-        key = os.environ.get("SERPAPI_API_KEY")
-        if not key:
-            return api_error(self.platform, "search", "Set SERPAPI_API_KEY")
+        if not isinstance(self.credentials, dict) or not isinstance(self.credentials.get("api_key"), str):
+            return api_error(self.platform, "search", "Configure settings.serpapi with api_key")
+        key = self.credentials["api_key"]
         params = {"engine": self.engine, "api_key": key} | {
             "google_shopping": {"q": query, "location": "San Francisco, California, United States", "gl": "us", "hl": "en", "direct_link": "true"},
             "amazon": {"k": query, "amazon_domain": "amazon.com", "language": "en_US"},
@@ -286,8 +288,11 @@ class SerpApi:
 class Amazon:
     platform = "amazon"
 
+    def __init__(self, settings: dict[str, Any]) -> None:
+        self.serpapi = SerpApi("amazon", settings)
+
     def search(self, session: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
-        return SerpApi("amazon").search(session, detection, query, limit, destination)
+        return self.serpapi.search(session, detection, query, limit, destination)
 
     def product(self, session: Session, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
         del detection, destination
@@ -589,8 +594,11 @@ def _amazon_https_url(value: str) -> bool:
 class Walmart:
     platform = "walmart"
 
+    def __init__(self, settings: dict[str, Any]) -> None:
+        self.serpapi = SerpApi("walmart", settings)
+
     def search(self, session: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
-        return SerpApi("walmart").search(session, detection, query, limit, destination)
+        return self.serpapi.search(session, detection, query, limit, destination)
 
     def product(self, session: Session, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
         del detection, destination

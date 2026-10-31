@@ -15,6 +15,8 @@ FIXTURES = Path(__file__).parent / "fixtures"
 DESTINATION = {"country": "US", "region": "CA", "city": "San Francisco", "address1": "747 Howard St", "postal_code": "94103"}
 PRODUCT_HTML = (FIXTURES / "marketplace-walmart-product.html").read_text()
 
+SETTINGS = {"serpapi": {"api_key": "secret"}}
+
 
 def detection() -> DetectedStore:
     return DetectedStore(
@@ -26,8 +28,7 @@ def detection() -> DetectedStore:
     )
 
 
-def test_search_maps_the_serpapi_walmart_branch(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SERPAPI_API_KEY", "secret")
+def test_search_maps_the_serpapi_walmart_branch() -> None:
     payload = json.loads((FIXTURES / "marketplace-walmart-search.json").read_text())
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -35,7 +36,7 @@ def test_search_maps_the_serpapi_walmart_branch(monkeypatch: pytest.MonkeyPatch)
         assert request.url.params["query"] == "cordless drill"
         return httpx.Response(200, json=payload, request=request)
 
-    result = Walmart().search(
+    result = Walmart(SETTINGS).search(
         Session(httpx.MockTransport(handler)),
         detection(),
         "cordless drill",
@@ -52,14 +53,13 @@ def test_search_maps_the_serpapi_walmart_branch(monkeypatch: pytest.MonkeyPatch)
     assert item["lead"] is True
 
 
-def test_search_rejects_a_result_without_an_item_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SERPAPI_API_KEY", "secret")
+def test_search_rejects_a_result_without_an_item_id() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"search_metadata": {"status": "Success"}, "organic_results": [{"title": "Drill", "primary_offer": {"offer_price": 9.99, "currency": "USD"}}]}, request=request)
 
     with pytest.raises(ToolError, match="us_item_id"):
-        SerpApi("walmart").search(
+        SerpApi("walmart", SETTINGS).search(
             Session(httpx.MockTransport(handler)), detection(), "drill", 5, DESTINATION
         )
 
@@ -73,7 +73,7 @@ def test_product_follows_the_item_redirect_and_parses_next_data() -> None:
             return httpx.Response(301, headers={"location": "/ip/Example-cordless-drill/123456789"}, request=request)
         return httpx.Response(200, text=PRODUCT_HTML, request=request)
 
-    result = Walmart().product(
+    result = Walmart(SETTINGS).product(
         Session(httpx.MockTransport(handler)),
         detection(),
         {"ref": {"platform": "walmart", "us_item_id": "123456789"}},
@@ -102,7 +102,7 @@ def test_product_reports_out_of_stock_without_failing() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, text=html, request=request)
 
-    result = Walmart().product(
+    result = Walmart(SETTINGS).product(
         Session(httpx.MockTransport(handler)),
         detection(),
         {"ref": {"platform": "walmart", "us_item_id": "123456789"}},
@@ -115,7 +115,7 @@ def test_product_reports_a_wall_instead_of_a_schema_error() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(429, text="<html>Please verify you are human — PerimeterX px-captcha</html>", request=request)
 
-    result = Walmart().product(
+    result = Walmart(SETTINGS).product(
         Session(httpx.MockTransport(handler)),
         detection(),
         {"ref": {"platform": "walmart", "us_item_id": "123456789"}},
@@ -132,7 +132,7 @@ def test_product_rejects_an_unrecognized_page_shape() -> None:
         return httpx.Response(200, text="<html><body>Redesigned page</body></html>", request=request)
 
     with pytest.raises(ToolError, match="__NEXT_DATA__"):
-        Walmart().product(
+        Walmart(SETTINGS).product(
             Session(httpx.MockTransport(handler)),
             detection(),
             {"ref": {"platform": "walmart", "us_item_id": "123456789"}},
@@ -145,7 +145,7 @@ def test_product_rejects_a_page_for_another_item() -> None:
         return httpx.Response(200, text=PRODUCT_HTML, request=request)
 
     with pytest.raises(ToolError, match="another item"):
-        Walmart().product(
+        Walmart(SETTINGS).product(
             Session(httpx.MockTransport(handler)),
             detection(),
             {"ref": {"platform": "walmart", "us_item_id": "987654321"}},
@@ -157,7 +157,7 @@ def test_missing_item_page_is_an_api_error() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(404, text="Not found", request=request)
 
-    result = Walmart().product(
+    result = Walmart(SETTINGS).product(
         Session(httpx.MockTransport(handler)),
         detection(),
         {"ref": {"platform": "walmart", "us_item_id": "123456789"}},
@@ -215,6 +215,6 @@ def test_product_accepts_a_walmart_url_with_query_parameters(tmp_path: Path) -> 
 
 
 def test_quote_declares_the_geo_ip_boundary() -> None:
-    result = Walmart().quote(Session(), detection(), [], DESTINATION)
+    result = Walmart(SETTINGS).quote(Session(), detection(), [], DESTINATION)
     assert result["status"] == "api_error"
     assert "request IP" in result["reason"]

@@ -20,20 +20,21 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 DESTINATION = {"country": "US", "region": "CA", "city": "San Francisco", "address1": "747 Howard St", "postal_code": "94103"}
 
+SETTINGS = {"serpapi": {"api_key": "secret"}, "aliexpress": {"app_key": "key", "app_secret": "secret"}}
+
 
 def detection(platform: str, origin: str) -> DetectedStore:
     return DetectedStore(origin=origin, entry_url=origin + "/", platform=platform, api_origin=origin, evidence=("pseudo",))
 
 
-def test_serpapi_google_shopping_maps_recorded_result(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SERPAPI_API_KEY", "secret")
+def test_serpapi_google_shopping_maps_recorded_result() -> None:
     recorded = json.loads((FIXTURES / "aggregator-serpapi-malformed.json").read_text())["shopping_result"]
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.params["engine"] == "google_shopping"
         return httpx.Response(200, json={"search_metadata": {"status": "Success"}, "shopping_results": [recorded]}, request=request)
 
-    result = SerpApi("google_shopping").search(
+    result = SerpApi("google_shopping", SETTINGS).search(
         Session(httpx.MockTransport(handler)),
         detection("google_shopping", "https://shopping.google.com"),
         "pliers",
@@ -44,8 +45,7 @@ def test_serpapi_google_shopping_maps_recorded_result(monkeypatch: pytest.Monkey
     assert result["items"][0]["lead"] is True
 
 
-def test_serpapi_rejects_ambiguous_and_malformed_results(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SERPAPI_API_KEY", "secret")
+def test_serpapi_rejects_ambiguous_and_malformed_results() -> None:
     fixture_data = json.loads((FIXTURES / "aggregator-serpapi-malformed.json").read_text())
     payloads = [
         {"search_metadata": {"status": "Success"}, "shopping_results": [], "inline_shopping_results": []},
@@ -57,7 +57,7 @@ def test_serpapi_rejects_ambiguous_and_malformed_results(monkeypatch: pytest.Mon
             return httpx.Response(200, json=payload, request=request)
 
         with pytest.raises(ToolError):
-            SerpApi("google_shopping").search(
+            SerpApi("google_shopping", SETTINGS).search(
                 Session(httpx.MockTransport(handler)),
                 detection("google_shopping", "https://shopping.google.com"),
                 "pliers",
@@ -66,9 +66,7 @@ def test_serpapi_rejects_ambiguous_and_malformed_results(monkeypatch: pytest.Mon
             )
 
 
-def test_aliexpress_maps_recorded_affiliate_product(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ALIEXPRESS_APP_KEY", "key")
-    monkeypatch.setenv("ALIEXPRESS_APP_SECRET", "secret")
+def test_aliexpress_maps_recorded_affiliate_product() -> None:
     product = json.loads((FIXTURES / "aggregator-aliexpress-malformed.json").read_text())["product"]
     payload = {"aliexpress_affiliate_product_query_response": {"resp_result": {"resp_code": 200, "result": {"products": {"product": [product]}}}}}
 
@@ -80,7 +78,7 @@ def test_aliexpress_maps_recorded_affiliate_product(monkeypatch: pytest.MonkeyPa
         assert signature == expected
         return httpx.Response(200, json=payload, request=request)
 
-    result = AliExpress().search(
+    result = AliExpress(SETTINGS).search(
         Session(httpx.MockTransport(handler)),
         detection("aliexpress", "https://www.aliexpress.com"),
         "inserts",
@@ -91,9 +89,7 @@ def test_aliexpress_maps_recorded_affiliate_product(monkeypatch: pytest.MonkeyPa
     assert result["items"][0]["lead"] is True
 
 
-def test_aliexpress_rejects_recorded_malformed_product(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ALIEXPRESS_APP_KEY", "key")
-    monkeypatch.setenv("ALIEXPRESS_APP_SECRET", "secret")
+def test_aliexpress_rejects_recorded_malformed_product() -> None:
     product = json.loads((FIXTURES / "aggregator-aliexpress-malformed.json").read_text())["malformed"]
     payload = {"aliexpress_affiliate_product_query_response": {"resp_result": {"resp_code": 200, "result": {"products": {"product": [product]}}}}}
 
@@ -101,7 +97,7 @@ def test_aliexpress_rejects_recorded_malformed_product(monkeypatch: pytest.Monke
         return httpx.Response(200, json=payload, request=request)
 
     with pytest.raises(ToolError):
-        AliExpress().search(
+        AliExpress(SETTINGS).search(
             Session(httpx.MockTransport(handler)),
             detection("aliexpress", "https://www.aliexpress.com"),
             "inserts",
@@ -110,8 +106,7 @@ def test_aliexpress_rejects_recorded_malformed_product(monkeypatch: pytest.Monke
         )
 
 
-def test_serpapi_amazon_maps_engine_and_results(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SERPAPI_API_KEY", "secret")
+def test_serpapi_amazon_maps_engine_and_results() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.params["engine"] == "amazon"
@@ -119,7 +114,7 @@ def test_serpapi_amazon_maps_engine_and_results(monkeypatch: pytest.MonkeyPatch)
         return httpx.Response(200, json={"search_metadata": {"status": "Success"}, "organic_results": [{"asin": "B0CZP3CDSZ", "title": "Coffee", "link_clean": "https://www.amazon.com/dp/B0CZP3CDSZ/", "extracted_price": 12.5, "thumbnail": "https://images.test/a.jpg"}]}, request=request)
 
     session = Session(httpx.MockTransport(handler))
-    result = SerpApi("amazon").search(session, detection("amazon", "https://www.amazon.com"), "coffee", 20, DESTINATION)
+    result = SerpApi("amazon", SETTINGS).search(session, detection("amazon", "https://www.amazon.com"), "coffee", 20, DESTINATION)
     assert result["items"][0]["item_ref"] == {"platform": "amazon", "asin": "B0CZP3CDSZ"}
 
 
@@ -305,14 +300,12 @@ def test_shopify_global_ucp_application_error_is_not_empty_success() -> None:
     assert "profile rejected" in result["reason"]
 
 
-def test_aliexpress_checks_application_response_code(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ALIEXPRESS_APP_KEY", "key")
-    monkeypatch.setenv("ALIEXPRESS_APP_SECRET", "secret")
+def test_aliexpress_checks_application_response_code() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"aliexpress_affiliate_product_query_response": {"resp_result": {"resp_code": 500, "resp_msg": "failed"}}}, request=request)
 
-    result = AliExpress().search(
+    result = AliExpress(SETTINGS).search(
         Session(httpx.MockTransport(handler)),
         detection("aliexpress", "https://www.aliexpress.com"),
         "valve",
@@ -323,13 +316,12 @@ def test_aliexpress_checks_application_response_code(monkeypatch: pytest.MonkeyP
     assert "500" in result["reason"]
 
 
-def test_serpapi_provider_error_redacts_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SERPAPI_API_KEY", "super-secret-key")
+def test_serpapi_provider_error_redacts_api_key() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"error": "Invalid key super-secret-key"}, request=request)
 
-    result = SerpApi("google_shopping").search(
+    result = SerpApi("google_shopping", {"serpapi": {"api_key": "super-secret-key"}}).search(
         Session(httpx.MockTransport(handler)),
         detection("google_shopping", "https://shopping.google.com"),
         "valve",

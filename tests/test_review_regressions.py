@@ -77,6 +77,8 @@ def test_config_show_reports_credentials_without_values(tmp_path: Path) -> None:
     result = cli._config(data, argparse.Namespace(config_command="show"))
 
     assert result["credentials"] == {
+        "serpapi": False,
+        "aliexpress": False,
         "ebay": True,
         "bestbuy": False,
         "etsy": False,

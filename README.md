@@ -99,6 +99,8 @@ Destination precedence is `--destination`, then `settings.json`, then the built-
 {
   "destination": {"country":"US","region":"CA","city":"San Francisco","address1":"747 Howard St","postal_code":"94103"},
   "web_bot_auth": {"private_key_path":"/secure/private.pem","key_directory_url":"https://agent.example/.well-known/http-message-signatures-directory"},
+  "serpapi": {"api_key":"…"},
+  "aliexpress": {"app_key":"…","app_secret":"…"},
   "ebay": {"client_id":"…","client_secret":"…"},
   "bestbuy": {"api_key":"…"},
   "etsy": {"keystring":"…","shared_secret":"…"},
@@ -108,8 +110,8 @@ Destination precedence is `--destination`, then `settings.json`, then the built-
 
 ## Credentials
 
-- `SERPAPI_API_KEY`: SerpApi Google Shopping, Amazon, and Walmart search.
-- `ALIEXPRESS_APP_KEY` and `ALIEXPRESS_APP_SECRET`: AliExpress Affiliate Product Query.
+- `settings.serpapi.api_key`: SerpApi Google Shopping, Amazon, and Walmart search.
+- `settings.aliexpress.app_key` and `settings.aliexpress.app_secret`: AliExpress Affiliate Product Query.
 - `settings.ebay.client_id` and `settings.ebay.client_secret`: eBay Developers Program production Browse API keyset. eBay keeps a new production keyset disabled, and rejects its token requests as `invalid_client`, until you subscribe to marketplace account-deletion notifications or claim the exemption for apps that don't store eBay data.
 - `settings.bestbuy.api_key`: Best Buy Developer API key, issued only to company-domain email addresses. Its terms cap caching at 72 hours and forbid use on behalf of other retailers.
 - `settings.etsy.keystring` and `settings.etsy.shared_secret`: Etsy Open API v3 app credentials from the approval-gated registration at etsy.com/developers/register.

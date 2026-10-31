@@ -82,6 +82,8 @@ NO_OFFERS_HTML = """
 </div>
 """
 
+SETTINGS = {"serpapi": {"api_key": "secret"}}
+
 
 def detection() -> DetectedStore:
     return DetectedStore(
@@ -186,7 +188,7 @@ def test_product_uses_one_bootstrap_and_one_read_only_aod_request() -> None:
         assert request.headers["x-requested-with"] == "XMLHttpRequest"
         return httpx.Response(200, text=PRODUCT_HTML, request=request)
 
-    result = Amazon().product(
+    result = Amazon(SETTINGS).product(
         Session(httpx.MockTransport(handler)),
         detection(),
         {"ref": {"platform": "amazon", "asin": "B0CZP3CDSZ"}},
@@ -204,7 +206,7 @@ def test_product_does_not_claim_that_aod_404_means_product_not_found() -> None:
         status = 200 if request.url.path == "/" else 404
         return httpx.Response(status, request=request)
 
-    result = Amazon().product(
+    result = Amazon(SETTINGS).product(
         Session(httpx.MockTransport(handler)),
         detection(),
         {"ref": {"platform": "amazon", "asin": "B000IB9QXI"}},
@@ -224,7 +226,7 @@ def test_product_fails_once_on_a_block_instead_of_retrying() -> None:
         return httpx.Response(status, request=request)
 
     with pytest.raises(ToolError, match="do not retry or add a bypass"):
-        Amazon().product(
+        Amazon(SETTINGS).product(
             Session(httpx.MockTransport(handler)),
             detection(),
             {"ref": {"platform": "amazon", "asin": "B0CZP3CDSZ"}},
@@ -304,7 +306,7 @@ def test_one_unparseable_product_does_not_fail_the_rest_of_the_batch(tmp_path) -
 
 
 def test_quote_has_no_anonymous_cart_api() -> None:
-    result = Amazon().quote(Session(), detection(), [], DESTINATION)
+    result = Amazon(SETTINGS).quote(Session(), detection(), [], DESTINATION)
     assert result == {
         "status": "api_error",
         "platform": "amazon",
