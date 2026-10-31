@@ -128,6 +128,14 @@ def test_normalizes_product_and_offer_panel_without_session_material() -> None:
     assert "secret-token" not in json.dumps(result)
 
 
+def test_accepts_a_single_rating() -> None:
+    html = PRODUCT_HTML.replace("4.2 out of 5 stars", "2.0 out of 5 stars").replace(
+        "3,285 ratings", "1 rating"
+    )
+    result = _amazon_product("B01BKNVBQC", html, RETRIEVED_AT)
+    assert result["reviews"] == {"status": "rated", "rating": 2.0, "count": 1}
+
+
 def test_models_no_offers_and_no_reviews_explicitly() -> None:
     result = _amazon_product("B0BM4274QM", NO_OFFERS_HTML, RETRIEVED_AT)
     assert result["reviews"] == {"status": "unrated"}
@@ -271,6 +279,28 @@ def test_product_accepts_an_amazon_url_with_query_parameters(tmp_path) -> None:
         "store": "https://www.amazon.com",
         "asin": "B0CZP3CDSZ",
     }
+
+
+def test_one_unparseable_product_does_not_fail_the_rest_of_the_batch(tmp_path) -> None:
+    broken = PRODUCT_HTML.replace("3,285 ratings", "rated by many")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/":
+            return httpx.Response(202, request=request)
+        html = broken if request.url.params["asin"] == "B0BM4274QM" else PRODUCT_HTML
+        return httpx.Response(200, text=html, request=request)
+
+    result = CrossShop(
+        DataStore(tmp_path), lambda origin: httpx.MockTransport(handler)
+    ).product([
+        "https://www.amazon.com/dp/B0BM4274QM",
+        "https://www.amazon.com/dp/B0CZP3CDSZ",
+    ])
+
+    first, second = result["products"]
+    assert first["status"] == "api_error"
+    assert first["reason"] == "Amazon returned an invalid product-rating block"
+    assert second["title"] == "Example magnetic battery"
 
 
 def test_quote_has_no_anonymous_cart_api() -> None:
