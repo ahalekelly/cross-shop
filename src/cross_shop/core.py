@@ -453,6 +453,7 @@ def normalize_variant(value: dict[str, Any], platform: str, origin: str) -> dict
         "currency": raw_price.get("currency") if isinstance(raw_price, dict) else None,
         "image_urls": images,
         **({"lead": True} if value.get("lead") is True else {}),
+        **({"listing": value["listing"]} if isinstance(value.get("listing"), dict) else {}),
         **({"shipping_options": value["shipping_options"]} if isinstance(value.get("shipping_options"), list) else {}),
         **({"merchant_stores": value["merchant_stores"]} if isinstance(value.get("merchant_stores"), list) else {}),
         **({"seller_url": value["seller_url"]} if isinstance(value.get("seller_url"), str) else {}),
@@ -485,13 +486,29 @@ def _handoff_url(value: str) -> str:
     return value
 
 
+BLOCK_TAGS = {"address", "article", "blockquote", "br", "dd", "div", "dl", "dt", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "li", "ol", "p", "section", "table", "td", "th", "tr", "ul"}
+HIDDEN_TAGS = {"head", "script", "style", "template", "title"}
+
+
 class _Text(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.values: list[str] = []
+        self.hidden = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.hidden += tag in HIDDEN_TAGS
+        if tag in BLOCK_TAGS:
+            self.values.append(" ")
+
+    def handle_endtag(self, tag: str) -> None:
+        self.hidden -= tag in HIDDEN_TAGS and self.hidden > 0
+        if tag in BLOCK_TAGS:
+            self.values.append(" ")
 
     def handle_data(self, data: str) -> None:
-        self.values.append(data)
+        if not self.hidden:
+            self.values.append(data)
 
 
 def description(value: Any, limit: int) -> str:

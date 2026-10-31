@@ -674,6 +674,7 @@ def _new_product(variant: dict[str, Any]) -> dict[str, Any]:
         "url": variant["url"], "available": variant["available"],
         "image_urls": variant["image_urls"], "variants": [variant], "queries": [],
         **({"lead": True} if variant.get("lead") is True else {}),
+        **({"listing": variant["listing"]} if "listing" in variant else {}),
         **({"shipping_options": variant["shipping_options"]} if "shipping_options" in variant else {}),
         **({"merchant_stores": variant["merchant_stores"]} if "merchant_stores" in variant else {}),
     }
@@ -723,7 +724,7 @@ def _search_output(
     per_item_currency = store.get("currency") is None
     for index, product in enumerate(store["items"], 1):
         variants = product["variants"]
-        item = {"i": index, "title": product["title"], "price": _product_price(product), "currency": _product_currency(product) if per_item_currency else None, "available": product.get("available"), "url": product.get("url"), "description": description(product.get("description", ""), description_chars), "images": len(product.get("image_urls", [])) or None, "lead": product.get("lead"), "variants": [value["name"] for value in variants] if len(variants) > 1 else None, "queries": product.get("queries") if multi else None}
+        item = {"i": index, "title": product["title"], "price": _product_price(product), "currency": _product_currency(product) if per_item_currency else None, "available": product.get("available"), "url": product.get("url"), "description": description(product.get("description", ""), description_chars), "images": len(product.get("image_urls", [])) or None, "lead": product.get("lead"), "listing": product.get("listing"), "variants": [value["name"] for value in variants] if len(variants) > 1 else None, "queries": product.get("queries") if multi else None}
         items.append(_omit(item))
     return _omit({"s": store_index, "input": store["input"], "store": store["store"], "detection": store["detection"], "status": "ok", "currency": store.get("currency"), "items": items, "evidence": store.get("evidence") if debug else None})
 
@@ -735,7 +736,7 @@ def _product_output(product: dict[str, Any], handle: str, chars: int) -> dict[st
     for value in product["variants"]:
         variant = {"name": value["name"], "options": value.get("options"), "price": value.get("price") if value.get("price") != product_price else None, "currency": value.get("currency") if currency is None else None, "available": value.get("available"), "ref": value["ref"], "seller_url": value.get("seller_url"), "seller_domain": value.get("seller_domain"), "variant_url": value.get("variant_url"), "checkout_url": value.get("checkout_url")}
         variants.append(_omit(variant))
-    return _omit({"handle": handle, "title": product["title"], "description": description(product.get("description", ""), chars), "price": product_price, "currency": currency, "available": product.get("available"), "images": len(product.get("image_urls", [])) or None, "url": product.get("url"), "variants": variants, "shipping_options": product.get("shipping_options")})
+    return _omit({"handle": handle, "title": product["title"], "description": description(product.get("description", ""), chars), "price": product_price, "currency": currency, "available": product.get("available"), "images": len(product.get("image_urls", [])) or None, "url": product.get("url"), "listing": product.get("listing"), "variants": variants, "shipping_options": product.get("shipping_options")})
 
 
 def _quote_output(raw: dict[str, Any], lines: list[dict[str, Any]]) -> dict[str, Any]:

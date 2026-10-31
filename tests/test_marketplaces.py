@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import time
+from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import parse_qsl
 
@@ -121,41 +123,97 @@ def test_serpapi_amazon_maps_engine_and_results(monkeypatch: pytest.MonkeyPatch)
     assert result["items"][0]["item_ref"] == {"platform": "amazon", "asin": "B0CZP3CDSZ"}
 
 
-def test_ebay_mints_one_token_and_includes_contextual_location() -> None:
-    requests: list[httpx.Request] = []
-
+def _ebay_handler(routes: dict[str, httpx.Response | Callable[[httpx.Request], httpx.Response]], requests: list[httpx.Request]) -> Callable[[httpx.Request], httpx.Response]:
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         if request.url.path == "/identity/v1/oauth2/token":
             return httpx.Response(200, json={"access_token": "token", "expires_in": 7200}, request=request)
-        if request.url.path.endswith("/item_summary/search"):
-            assert request.headers["X-EBAY-C-ENDUSERCTX"] == "contextualLocation=country%3DUS,zip%3D94103"
-            return httpx.Response(200, json={"itemSummaries": [{"itemId": "v1|1|0", "title": "Valve", "itemWebUrl": "https://www.ebay.com/itm/1", "price": {"value": "9.99", "currency": "USD"}}]}, request=request)
-        raise AssertionError(request.url)
+        route = routes[request.url.path.rsplit("/", 1)[-1]]
+        return route(request) if callable(route) else route
 
+    return handler
+
+
+def test_ebay_mints_one_token_and_encodes_contextual_location() -> None:
+    requests: list[httpx.Request] = []
+    search = httpx.Response(200, json={"itemSummaries": [{"itemId": "v1|1|0", "title": "Valve", "itemWebUrl": "https://www.ebay.com/itm/1?_skw=valve&hash=item1", "price": {"value": "9.99", "currency": "USD"}, "condition": "Used", "buyingOptions": ["FIXED_PRICE", "BEST_OFFER"], "seller": {"username": "shop", "feedbackScore": 12, "feedbackPercentage": "99.5"}, "shippingOptions": [{"shippingCost": {"value": "4.50", "currency": "USD"}}]}]})
     adapter = Ebay({"ebay": {"client_id": "id", "client_secret": "secret"}})
-    session = Session(httpx.MockTransport(handler))
+    session = Session(httpx.MockTransport(_ebay_handler({"search": search}, requests)))
     adapter.search(session, detection("ebay", "https://www.ebay.com"), "valve", 20, DESTINATION)
-    adapter.search(session, detection("ebay", "https://www.ebay.com"), "valve", 20, DESTINATION)
+    result = adapter.search(session, detection("ebay", "https://www.ebay.com"), "valve", 20, DESTINATION)
     assert sum(request.url.path == "/identity/v1/oauth2/token" for request in requests) == 1
+    assert requests[-1].headers["X-EBAY-C-ENDUSERCTX"] == "contextualLocation=country%3DUS%2Czip%3D94103"
+    assert result["items"][0]["product_url"] == "https://www.ebay.com/itm/1"
+    assert result["items"][0]["listing"] == {"condition": "Used", "shipping": 4.5, "seller": "shop (12, 99.5%)", "best_offer": True}
 
 
-def test_ebay_product_url_uses_legacy_id_lookup_and_returns_shipping() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/identity/v1/oauth2/token":
-            return httpx.Response(200, json={"access_token": "token"}, request=request)
-        assert request.url.path.endswith("/item/get_item_by_legacy_id")
+def test_ebay_refreshes_expired_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    requests: list[httpx.Request] = []
+    search = httpx.Response(200, json={"itemSummaries": []})
+    adapter = Ebay({"ebay": {"client_id": "id", "client_secret": "secret"}})
+    session = Session(httpx.MockTransport(_ebay_handler({"search": search}, requests)))
+    adapter.search(session, detection("ebay", "https://www.ebay.com"), "valve", 20, DESTINATION)
+    now = time.monotonic()
+    monkeypatch.setattr(time, "monotonic", lambda: now + 7200)
+    adapter.search(session, detection("ebay", "https://www.ebay.com"), "valve", 20, DESTINATION)
+    assert sum(request.url.path == "/identity/v1/oauth2/token" for request in requests) == 2
+
+
+def test_ebay_product_url_uses_legacy_id_lookup_and_returns_listing_terms() -> None:
+    def item(request: httpx.Request) -> httpx.Response:
         assert request.url.params["legacy_item_id"] == "123456789012"
-        return httpx.Response(200, json={"itemId": "v1|123456789012|0", "title": "Valve", "itemWebUrl": "https://www.ebay.com/itm/123456789012", "price": {"value": "9.99", "currency": "USD"}, "shippingOptions": [{"shippingCost": {"value": "5.00", "currency": "USD"}}]}, request=request)
+        return httpx.Response(200, json={
+            "itemId": "v1|123456789012|0", "title": "Valve", "itemWebUrl": "https://www.ebay.com/itm/123456789012",
+            "price": {"value": "9.99", "currency": "USD"}, "description": "<p>Brass valve</p>", "condition": "New",
+            "returnTerms": {"returnsAccepted": True, "returnPeriod": {"value": 30, "unit": "CALENDAR_DAY"}, "returnShippingCostPayer": "BUYER"},
+            "localizedAspects": [{"name": "Brand", "value": "Acme"}],
+            "estimatedAvailabilities": [{"estimatedAvailabilityStatus": "IN_STOCK", "estimatedSoldQuantity": 3}],
+            "shippingOptions": [{"shippingServiceCode": "USPS Ground Advantage", "shippingCost": {"value": "5.00", "currency": "USD"}, "minEstimatedDeliveryDate": "2026-11-05T10:00:00.000Z", "maxEstimatedDeliveryDate": "2026-11-12T10:00:00.000Z"}],
+        })
 
     result = Ebay({"ebay": {"client_id": "id", "client_secret": "secret"}}).product(
-        Session(httpx.MockTransport(handler)),
+        Session(httpx.MockTransport(_ebay_handler({"get_item_by_legacy_id": item}, []))),
         detection("ebay", "https://www.ebay.com"),
         {"url": "https://www.ebay.com/itm/123456789012"},
         DESTINATION,
     )
 
-    assert result["shipping_options"][0]["shippingCost"]["value"] == "5.00"
+    assert result["available"] is True
+    assert result["description"] == "<p>Brass valve</p>"
+    assert result["shipping_options"] == [{"title": "USPS Ground Advantage", "price": 5.0, "delivery": "2026-11-05/2026-11-12"}]
+    assert result["listing"] == {"condition": "New", "shipping": 5.0, "sold": 3, "returns": "30 days, buyer pays return shipping", "specifics": {"Brand": "Acme"}}
+
+
+def test_ebay_multi_variation_url_returns_item_group_variants() -> None:
+    legacy = httpx.Response(400, json={"errors": [{"errorId": 11006, "message": "The legacy Id is invalid."}]})
+    group = httpx.Response(200, json={"commonDescriptions": [{"description": "Cables"}], "items": [
+        {"itemId": f"v1|5|{index}", "title": "Cable", "itemWebUrl": f"https://www.ebay.com/itm/5?var=10{index}", "price": {"value": price, "currency": "USD"}, "localizedAspects": [{"name": "Brand", "value": "Acme"}, {"name": "Length", "value": length}]}
+        for index, price, length in ((1, "8.89", "3FT"), (2, "9.99", "6FT"))
+    ]})
+    result = Ebay({"ebay": {"client_id": "id", "client_secret": "secret"}}).product(
+        Session(httpx.MockTransport(_ebay_handler({"get_item_by_legacy_id": legacy, "get_items_by_item_group": group}, []))),
+        detection("ebay", "https://www.ebay.com"),
+        {"url": "https://www.ebay.com/itm/5"},
+        DESTINATION,
+    )
+
+    assert [(item["variant"], item["options"], item["item_ref"]["item_id"]) for item in result["items"]] == [
+        ("3FT", [{"name": "Length", "value": "3FT"}], "v1|5|1"),
+        ("6FT", [{"name": "Length", "value": "6FT"}], "v1|5|2"),
+    ]
+    assert result["items"][0]["description"] == "Cables"
+    assert result["items"][1]["variant_url"] == "https://www.ebay.com/itm/5?var=102"
+
+
+def test_ebay_api_error_reports_ebay_message() -> None:
+    failure = httpx.Response(400, json={"errors": [{"errorId": 11020, "message": "The X-EBAY-C-ENDUSERCTX header value is in an invalid format."}]})
+    result = Ebay({"ebay": {"client_id": "id", "client_secret": "secret"}}).product(
+        Session(httpx.MockTransport(_ebay_handler({"get_item_by_legacy_id": failure}, []))),
+        detection("ebay", "https://www.ebay.com"),
+        {"url": "https://www.ebay.com/itm/1"},
+        DESTINATION,
+    )
+    assert result["reason"] == "eBay Browse getItem failed: The X-EBAY-C-ENDUSERCTX header value is in an invalid format."
 
 
 def test_ebay_missing_credentials_is_specific() -> None:

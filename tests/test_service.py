@@ -315,6 +315,8 @@ def test_refs_are_strict_and_canonically_equal() -> None:
 def test_destination_and_description_validation() -> None:
     assert validate_destination({"country": "us", "postal_code": "94103"}) == {"country": "US", "postal_code": "94103"}
     assert description("<p>A &amp; B</p>", 3) == "A &…"
+    assert description("<p>Pi 5</p><p>Case</p>Power<br>Cable <b>B</b>lue", 100) == "Pi 5 Case Power Cable Blue"
+    assert description("<style>.box{color:red}</style><div class=box>Valve</div><script>x()</script>", 100) == "Valve"
     with pytest.raises(ToolError, match="unknown keys"):
         validate_destination({**DEFAULT_DESTINATION, "phone": "x"})
 

@@ -76,7 +76,7 @@ These origins use marketplace adapters without live platform detection:
 | `https://www.aliexpress.com` | AliExpress Affiliate API | Affiliate search only; no quote |
 | `https://shopping.google.com` | SerpApi Google Shopping | Unverified leads; quote the merchant |
 | `https://www.amazon.com` | SerpApi search and Amazon all-offers display detail | Exact ASIN detail; no anonymous cart API |
-| `https://www.ebay.com` | eBay Browse API | Detail includes shipping; checkout APIs are restricted-tier |
+| `https://www.ebay.com` | eBay Browse API | Results carry a `listing` block (condition, seller feedback, shipping, Best Offer, bids); detail adds returns, sold count, and item specifics, and expands multi-variation listings into variants; checkout APIs are restricted-tier |
 | `https://www.walmart.com` | SerpApi Walmart search and anonymous item-page detail | Exact item detail; delivery location follows the request IP, so no quote |
 | `https://www.bestbuy.com` | Best Buy Products API | Exact SKU detail; shipping fields are catalog-level, so no quote |
 | `https://www.etsy.com` | Etsy Open API v3 | Exact listing detail; quotes are buyer prices for the destination country |
@@ -110,7 +110,7 @@ Destination precedence is `--destination`, then `settings.json`, then the built-
 
 - `SERPAPI_API_KEY`: SerpApi Google Shopping, Amazon, and Walmart search.
 - `ALIEXPRESS_APP_KEY` and `ALIEXPRESS_APP_SECRET`: AliExpress Affiliate Product Query.
-- `settings.ebay.client_id` and `settings.ebay.client_secret`: eBay Developers Program production Browse API keyset. Production access requires eBay marketplace account-deletion notification compliance.
+- `settings.ebay.client_id` and `settings.ebay.client_secret`: eBay Developers Program production Browse API keyset. eBay keeps a new production keyset disabled, and rejects its token requests as `invalid_client`, until you subscribe to marketplace account-deletion notifications or claim the exemption for apps that don't store eBay data.
 - `settings.bestbuy.api_key`: Best Buy Developer API key, issued only to company-domain email addresses. Its terms cap caching at 72 hours and forbid use on behalf of other retailers.
 - `settings.etsy.keystring` and `settings.etsy.shared_secret`: Etsy Open API v3 app credentials from the approval-gated registration at etsy.com/developers/register.
 - `settings.shopify_global.profile_url`: public UCP agent profile required by Shopify's Global Catalog contract.

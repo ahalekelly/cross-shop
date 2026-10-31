@@ -7,9 +7,10 @@ import hmac
 import json
 import os
 import re
+import time
 from decimal import Decimal
 from typing import Any
-from urllib.parse import quote, urljoin, urlsplit
+from urllib.parse import parse_qs, quote, urljoin, urlsplit
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -27,6 +28,7 @@ from cross_shop.core import (
     json_object,
     minor_money,
     money,
+    money_amount,
     parse_item_ref,
     quote_outcome,
     shipping_option,
@@ -940,6 +942,7 @@ class Ebay:
     def __init__(self, settings: dict[str, Any]) -> None:
         self.credentials = settings.get("ebay")
         self.token: str | None = None
+        self.token_expires = 0.0
 
     def _headers(self, session: Session, destination: dict[str, str]) -> dict[str, str] | dict[str, Any]:
         if not isinstance(self.credentials, dict) or set(self.credentials) != {"client_id", "client_secret"}:
@@ -947,53 +950,70 @@ class Ebay:
         client_id, secret = self.credentials["client_id"], self.credentials["client_secret"]
         if not isinstance(client_id, str) or not isinstance(secret, str):
             raise ToolError("eBay credentials must be strings")
-        if self.token is None:
+        if self.token is None or time.monotonic() >= self.token_expires:
             basic = base64.b64encode(f"{client_id}:{secret}".encode()).decode()
             response = session.request("POST", EBAY_TOKEN, headers={"Authorization": f"Basic {basic}", "Content-Type": "application/x-www-form-urlencoded"}, data={"grant_type": "client_credentials", "scope": "https://api.ebay.com/oauth/api_scope"})
             payload = json_object(response, "eBay OAuth")
-            if response.status_code != 200 or not isinstance(payload.get("access_token"), str):
-                raise ToolError("eBay OAuth client-credentials token request failed")
+            if response.status_code != 200:
+                # A disabled production keyset also answers invalid_client.
+                raise ToolError(f"eBay OAuth client-credentials token request failed: {payload.get('error_description', response.status_code)}; check the production keyset is enabled at developer.ebay.com")
+            if not isinstance(payload.get("access_token"), str) or not isinstance(payload.get("expires_in"), int):
+                raise ToolError("eBay OAuth response omitted access_token or expires_in")
             self.token = payload["access_token"]
-        location = quote(
-            f"country={destination['country']},zip={destination['postal_code']}",
-            safe=",",
-        )
+            self.token_expires = time.monotonic() + payload["expires_in"] - 60
+        location = quote(f"country={destination['country']},zip={destination['postal_code']}", safe="")
         return {
             "Authorization": f"Bearer {self.token}",
             "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
             "X-EBAY-C-ENDUSERCTX": f"contextualLocation={location}",
         }
 
+    def _get(self, session: Session, destination: dict[str, str], path: str, params: dict[str, str], context: str) -> tuple[httpx.Response, dict[str, Any]]:
+        response = session.request("GET", EBAY_API + path, headers=self._headers(session, destination), params=params)
+        return response, json_object(response, context)
+
     def search(self, session: Session, detection: DetectedStore, query: str, limit: int, destination: dict[str, str]) -> dict[str, Any]:
         del detection
-        response = session.request("GET", EBAY_API + "/buy/browse/v1/item_summary/search", headers=self._headers(session, destination), params={"q": query, "limit": str(limit)})
-        payload = json_object(response, "eBay Browse search")
+        response, payload = self._get(session, destination, "/buy/browse/v1/item_summary/search", {"q": query, "limit": str(limit)}, "eBay Browse search")
         if response.status_code != 200:
-            return api_error(self.platform, "search", "eBay Browse search failed", response.status_code)
+            return _ebay_failure("search", "eBay Browse search", response, payload)
         values = payload.get("itemSummaries", [])
         if not isinstance(values, list):
             raise ToolError("eBay Browse search omitted itemSummaries")
         return {"kind": "search", "platform": self.platform, "items": [self._item(value) for value in values]}
 
     def _item(self, value: object) -> dict[str, Any]:
+        """Maps an item summary or full item; summaries lack availability, returns, and specifics."""
         if not isinstance(value, dict) or not isinstance(value.get("itemId"), str) or not isinstance(value.get("title"), str):
-            raise ToolError("eBay item summary has invalid identity")
-        price = value.get("price")
+            raise ToolError("eBay item has invalid identity")
+        price = value.get("price", value.get("currentBidPrice"))
         if not isinstance(price, dict) or not isinstance(value.get("itemWebUrl"), str):
-            raise ToolError("eBay item summary omitted price or URL")
-        image = value.get("image")
-        return {"title": value["title"], "price": money(price.get("value"), price.get("currency")), "product_url": value["itemWebUrl"], "image_urls": [image["imageUrl"]] if isinstance(image, dict) and isinstance(image.get("imageUrl"), str) else [], "item_ref": item_ref(self.platform, {"item_id": value["itemId"]})}
+            raise ToolError("eBay item omitted price or URL")
+        images = [image["imageUrl"] for image in [value.get("image"), *value.get("additionalImages", [])] if isinstance(image, dict) and isinstance(image.get("imageUrl"), str)]
+        shipping = [_ebay_shipping(option) for option in value.get("shippingOptions", [])]
+        availability = (value.get("estimatedAvailabilities") or [{}])[0]
+        url, _, query = value["itemWebUrl"].partition("?")
+        variation = parse_qs(query).get("var")
+        return {
+            "title": value["title"],
+            "price": money(price.get("value"), price.get("currency")),
+            "product_url": url,
+            **({"variant_url": f"{url}?var={variation[0]}"} if variation else {}),
+            "image_urls": images,
+            "item_ref": item_ref(self.platform, {"item_id": value["itemId"]}),
+            "description": value.get("description", value.get("shortDescription", "")),
+            **({"available": availability["estimatedAvailabilityStatus"] in {"IN_STOCK", "LIMITED_STOCK"}} if "estimatedAvailabilityStatus" in availability else {}),
+            "listing": _ebay_listing(value, shipping, availability),
+            **({"shipping_options": shipping} if shipping else {}),
+        }
 
     def product(self, session: Session, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
         del detection
         reference = item.get("ref")
         item_id = reference.get("item_id") if isinstance(reference, dict) else item.get("item_id")
         if isinstance(item_id, str):
-            response = session.request(
-                "GET",
-                EBAY_API + "/buy/browse/v1/item/" + quote(item_id, safe=""),
-                headers=self._headers(session, destination),
-            )
+            response, payload = self._get(session, destination, "/buy/browse/v1/item/" + quote(item_id, safe=""), {}, "eBay Browse item")
+            legacy_id = None
         else:
             url = item.get("url")
             if not isinstance(url, str):
@@ -1001,25 +1021,91 @@ class Ebay:
             legacy_id = url.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
             if not legacy_id.isdecimal():
                 raise ToolError("eBay item URL must end with a numeric legacy item ID")
-            response = session.request(
-                "GET",
-                EBAY_API + "/buy/browse/v1/item/get_item_by_legacy_id",
-                headers=self._headers(session, destination),
-                params={"legacy_item_id": legacy_id},
-            )
-        payload = json_object(response, "eBay Browse item")
+            response, payload = self._get(session, destination, "/buy/browse/v1/item/get_item_by_legacy_id", {"legacy_item_id": legacy_id}, "eBay Browse item")
+        # Error 11006: the legacy ID is a multi-variation listing, served only as an item group.
+        if legacy_id is not None and response.status_code == 400 and _ebay_error(payload, "errorId") == 11006:
+            return self._item_group(session, destination, legacy_id)
         if response.status_code != 200:
-            return api_error(self.platform, "product", "eBay Browse getItem failed", response.status_code)
-        detail = self._item({**payload, "itemWebUrl": payload.get("itemWebUrl", item.get("url"))})
-        detail["description"] = payload.get("shortDescription", "")
-        shipping = payload.get("shippingOptions")
-        if isinstance(shipping, list) and shipping:
-            detail["shipping_options"] = shipping
-        return detail
+            return _ebay_failure("product", "eBay Browse getItem", response, payload)
+        return self._item(payload)
+
+    def _item_group(self, session: Session, destination: dict[str, str], group_id: str) -> dict[str, Any]:
+        response, payload = self._get(session, destination, "/buy/browse/v1/item/get_items_by_item_group", {"item_group_id": group_id}, "eBay Browse item group")
+        if response.status_code != 200:
+            return _ebay_failure("product", "eBay Browse getItemsByItemGroup", response, payload)
+        values = payload.get("items")
+        if not isinstance(values, list) or not values or any(not isinstance(value, dict) for value in values):
+            raise ToolError("eBay item group omitted its items")
+        aspects = [{aspect["name"]: aspect["value"] for aspect in value.get("localizedAspects", [])} for value in values]
+        names = dict.fromkeys(name for specifics in aspects for name in specifics)
+        varying = [name for name in names if len({specifics.get(name) for specifics in aspects}) > 1]
+        common = (payload.get("commonDescriptions") or [{}])[0].get("description", "")
+        variants = []
+        for value, specifics in zip(values, aspects, strict=True):
+            options = [{"name": name, "value": specifics[name]} for name in varying if name in specifics]
+            variants.append({**self._item(value), "description": common, "options": options, "variant": " / ".join(option["value"] for option in options)})
+        return {"kind": "search", "platform": self.platform, "items": variants}
 
     def quote(self, session: Session, detection: DetectedStore, lines: list[dict[str, Any]], destination: dict[str, str]) -> dict[str, Any]:
         del session, detection, lines, destination
         return api_error(self.platform, "quote", "eBay shipping appears in product detail; checkout APIs are restricted-tier")
+
+
+def _ebay_error(payload: dict[str, Any], key: str) -> Any:
+    errors = payload.get("errors")
+    return errors[0].get(key) if isinstance(errors, list) and errors and isinstance(errors[0], dict) else None
+
+
+def _ebay_failure(stage: str, context: str, response: httpx.Response, payload: dict[str, Any]) -> dict[str, Any]:
+    message = _ebay_error(payload, "message")
+    return api_error("ebay", stage, f"{context} failed" + (f": {message}" if isinstance(message, str) else ""), response.status_code)
+
+
+def _ebay_shipping(option: object) -> dict[str, Any]:
+    if not isinstance(option, dict):
+        raise ToolError("eBay shipping option must be an object")
+    cost = option.get("shippingCost")
+    dates = [option[key][:10] for key in ("minEstimatedDeliveryDate", "maxEstimatedDeliveryDate") if isinstance(option.get(key), str)]
+    return {
+        key: value
+        for key, value in {
+            "title": option.get("shippingServiceCode", option.get("type")),
+            "price": money_amount(money(cost.get("value"), cost.get("currency"))) if isinstance(cost, dict) else None,
+            "delivery": "/".join(dict.fromkeys(dates)) or None,
+        }.items()
+        if value is not None
+    }
+
+
+def _ebay_listing(value: dict[str, Any], shipping: list[dict[str, Any]], availability: dict[str, Any]) -> dict[str, Any]:
+    """Listing terms buyers compare on eBay, omitting absent fields."""
+    seller = value.get("seller", {})
+    options = value.get("buyingOptions", [])
+    bid = value.get("currentBidPrice")
+    listing = {
+        "condition": value.get("condition"),
+        "condition_note": value.get("conditionDescription"),
+        "shipping": min((option["price"] for option in shipping if "price" in option), default=None),
+        "seller": f"{seller['username']} ({seller['feedbackScore']}, {seller['feedbackPercentage']}%)" if {"username", "feedbackScore", "feedbackPercentage"} <= set(seller) else seller.get("username"),
+        "best_offer": True if "BEST_OFFER" in options else None,
+        "auction": {"bid": money_amount(money(bid.get("value"), bid.get("currency"))) if isinstance(bid, dict) else None, "bids": value.get("bidCount", 0), "ends": value.get("itemEndDate")} if "AUCTION" in options else None,
+        "sold": availability.get("estimatedSoldQuantity") or None,
+        "returns": _ebay_returns(value.get("returnTerms")),
+        "location": ", ".join(str(part) for part in (value.get("itemLocation", {}).get("city"), value.get("itemLocation", {}).get("stateOrProvince")) if part) or None,
+        "specifics": {aspect["name"]: aspect["value"] for aspect in value.get("localizedAspects", [])} or None,
+    }
+    return {key: item for key, item in listing.items() if item is not None}
+
+
+def _ebay_returns(terms: object) -> str | None:
+    if not isinstance(terms, dict):
+        return None
+    if not terms.get("returnsAccepted"):
+        return "not accepted"
+    period = terms.get("returnPeriod", {})
+    text = f"{period['value']} {period['unit'].removeprefix('CALENDAR_').replace('_', ' ').lower()}s" if {"value", "unit"} <= set(period) else "accepted"
+    payer = terms.get("returnShippingCostPayer")
+    return f"{text}, {payer.lower()} pays return shipping" if isinstance(payer, str) else text
 
 
 class ShopifyGlobal:
