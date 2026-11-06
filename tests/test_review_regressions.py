@@ -11,7 +11,7 @@ import pytest
 
 from cross_shop import cli, mcp_server
 from cross_shop.adapters import bigcommerce, walled
-from cross_shop.core import DetectedStore, Session, ToolError, canonical_url, item_ref
+from cross_shop.core import DetectedStore, Session, ToolError, canonical_url, item_ref, url_origin
 from cross_shop.service import CrossShop
 from cross_shop.storage import DataStore
 
@@ -291,6 +291,10 @@ def test_item_discriminator_and_canonical_urls_reject_ambiguous_input(
         cross_shop._resolve_item("httpfoo")
     with pytest.raises(ToolError, match="query or fragment"):
         canonical_url("https://store.test/products/item?variant=1")
+
+
+def test_url_origin_ignores_path_query_and_fragment() -> None:
+    assert url_origin("https://Store.test:443/products/item?variant=1#top") == "https://store.test"
 
 
 def test_storefront_entry_rejects_redirect_outside_allowlist() -> None:
