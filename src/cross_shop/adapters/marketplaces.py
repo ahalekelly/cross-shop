@@ -670,9 +670,9 @@ def _walmart_item(product: dict[str, Any], us_item_id: str) -> dict[str, Any]:
     canonical = product.get("canonicalUrl")
     if not isinstance(canonical, str) or not canonical:
         raise ToolError("Walmart item omitted its canonical URL")
-    product_url = urljoin(WALMART_ORIGIN, canonical)
-    if url_origin(product_url) != WALMART_ORIGIN:
-        raise ToolError("Walmart canonical URL left walmart.com")
+    product_url = WALMART_ORIGIN + _marketplace_path(
+        urljoin(WALMART_ORIGIN, canonical), WALMART_HOSTS, "Walmart canonical URL left walmart.com"
+    )
     image_info = product.get("imageInfo")
     raw_images = image_info.get("allImages", []) if isinstance(image_info, dict) else []
     if not isinstance(raw_images, list):
