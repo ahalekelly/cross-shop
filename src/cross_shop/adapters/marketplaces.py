@@ -261,9 +261,10 @@ class SerpApi:
             value.get("direct_link") or value.get("link_clean") or value.get("link") or value.get("product_link"),
             "SerpApi merchant URL",
         )
+        # Amazon "See options" cards (no featured offer) carry no extracted_price; they are still leads.
         price = value.get("extracted_price")
-        if isinstance(price, bool) or not isinstance(price, (int, float)) or price < 0:
-            raise ToolError("SerpApi result requires numeric extracted_price")
+        if price is not None and (isinstance(price, bool) or not isinstance(price, (int, float)) or price < 0):
+            raise ToolError("SerpApi extracted_price must be a nonnegative number")
         if self.engine == "amazon":
             asin = value.get("asin")
             if not isinstance(asin, str):
@@ -274,7 +275,11 @@ class SerpApi:
             if not product_id:
                 raise ToolError("SerpApi Shopping result requires product_id or position")
             reference = item_ref(self.platform, {"product_id": product_id, "merchant_url": url})
-        return {"title": value["title"], "price": money(price, "USD"), "product_url": url, "image_urls": images, "item_ref": reference, "lead": True}
+        return {
+            "title": value["title"],
+            **({"price": money(price, "USD")} if price is not None else {}),
+            "product_url": url, "image_urls": images, "item_ref": reference, "lead": True,
+        }
 
     def product(self, session: Session, detection: DetectedStore, item: dict[str, Any], destination: dict[str, str]) -> dict[str, Any]:
         del session, detection, destination

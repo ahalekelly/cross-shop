@@ -118,6 +118,19 @@ def test_serpapi_amazon_maps_engine_and_results() -> None:
     assert result["items"][0]["item_ref"] == {"platform": "amazon", "asin": "B0CZP3CDSZ"}
 
 
+def test_serpapi_keeps_results_without_a_featured_offer_price() -> None:
+    priced = {"asin": "B0GL7Q7173", "title": "Cube 35 Pint Dehumidifier", "link_clean": "https://www.amazon.com/dp/B0GL7Q7173/", "price": "$209.99", "extracted_price": 209.99}
+    see_options = {"asin": "B09155CW3S", "title": "Cube 35 Pint Dehumidifier, White", "link_clean": "https://www.amazon.com/dp/B09155CW3S/", "options": "See options", "purchase_options": [{"no_featured_offers": True}]}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"search_metadata": {"status": "Success"}, "organic_results": [priced, see_options]}, request=request)
+
+    result = SerpApi("amazon", SETTINGS).search(Session(httpx.MockTransport(handler)), detection("amazon", "https://www.amazon.com"), "dehumidifier", 20, DESTINATION)
+    assert [item["item_ref"]["asin"] for item in result["items"]] == ["B0GL7Q7173", "B09155CW3S"]
+    assert result["items"][0]["price"] == {"amount": "209.99", "currency": "USD"}
+    assert "price" not in result["items"][1]
+
+
 def _ebay_handler(routes: dict[str, httpx.Response | Callable[[httpx.Request], httpx.Response]], requests: list[httpx.Request]) -> Callable[[httpx.Request], httpx.Response]:
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
