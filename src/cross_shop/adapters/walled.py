@@ -384,9 +384,7 @@ def _sfcc_search(http: Session, detection: DetectedStore, query: str, limit: int
     response = http.get(
         http.sfcc_search(detection.origin, detection.entry_url, query)
     )
-    final = urlsplit(str(response.url))
-    final_origin = url_origin(f"{final.scheme}://{final.netloc}")
-    if final_origin != detection.origin:
+    if url_origin(str(response.url)) != detection.origin:
         raise ToolError("SFCC search redirected outside the detected storefront")
     terminal = _wall(response, "sfcc")
     if terminal is not None:
@@ -465,13 +463,12 @@ class SfccProducts(HTMLParser):
             if href and "product_url" not in item:
                 target = urljoin(self.origin + "/", href)
                 parts = urlsplit(target)
-                product_origin = url_origin(f"{parts.scheme}://{parts.netloc}")
                 if (
                     parts.scheme == "https"
                     and parts.username is None
                     and parts.password is None
                     and not parts.fragment
-                    and product_origin == self.origin
+                    and url_origin(target) == self.origin
                 ):
                     item["product_url"] = target
             if (values.get("itemprop") or "").casefold() == "price" and values.get(

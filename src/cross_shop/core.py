@@ -236,8 +236,7 @@ def normalize_store_url(value: str) -> str:
 def url_origin(value: str) -> str:
     """Origin of any URL; its path, query, and fragment are ignored."""
     parts = urlsplit(value if "://" in value else f"https://{value}")
-    normalized = urlsplit(normalize_store_url(urlunsplit((parts.scheme, parts.netloc, "", "", ""))))
-    return urlunsplit((normalized.scheme, normalized.netloc, "", "", ""))
+    return normalize_store_url(f"{parts.scheme}://{parts.netloc}").removesuffix("/")
 
 
 def canonical_url(value: str) -> str:
