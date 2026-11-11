@@ -96,6 +96,24 @@ def test_product_follows_the_item_redirect_and_parses_next_data() -> None:
     assert result["delivery_scope"] == "anonymous_default_location"
 
 
+def test_product_drops_the_query_from_walmart_canonical_url() -> None:
+    html = PRODUCT_HTML.replace(
+        '"canonicalUrl":"/ip/Example-cordless-drill/123456789"',
+        '"canonicalUrl":"/ip/Example-cordless-drill/123456789?conditionGroupCode=2"',
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=html, request=request)
+
+    result = Walmart(SETTINGS).product(
+        Session(httpx.MockTransport(handler)),
+        detection(),
+        {"ref": {"platform": "walmart", "us_item_id": "123456789"}},
+        DESTINATION,
+    )
+    assert result["product_url"] == "https://www.walmart.com/ip/Example-cordless-drill/123456789"
+
+
 def test_product_reports_out_of_stock_without_failing() -> None:
     html = PRODUCT_HTML.replace('"value":"IN_STOCK"', '"value":"OUT_OF_STOCK"')
 

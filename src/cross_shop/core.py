@@ -234,8 +234,10 @@ def normalize_store_url(value: str) -> str:
 
 
 def url_origin(value: str) -> str:
-    parts = urlsplit(normalize_store_url(value))
-    return urlunsplit((parts.scheme, parts.netloc, "", "", ""))
+    """Origin of any URL; its path, query, and fragment are ignored."""
+    parts = urlsplit(value if "://" in value else f"https://{value}")
+    normalized = urlsplit(normalize_store_url(urlunsplit((parts.scheme, parts.netloc, "", "", ""))))
+    return urlunsplit((normalized.scheme, normalized.netloc, "", "", ""))
 
 
 def canonical_url(value: str) -> str:

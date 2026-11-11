@@ -60,7 +60,7 @@ Pi can read the same config through [pi-mcp-adapter](https://www.npmjs.com/packa
 - `config set-destination <json>`, `config show`, and `config import-vendors <path>` manage persistent configuration. `config show` reports configured credential blocks without printing secrets or private-key paths.
 - `mcp` runs the stdio MCP server.
 
-Search and product write monotonic run IDs. `r7.2.5` means item 5 from store 2 in run 7; `r7.2.5.3` means its third variant. Handles expire after seven days. Product detail emits strict, self-contained durable refs such as `{"platform":"shopify","store":"https://example.com","variant_id":"gid://shopify/ProductVariant/123"}`. Product URLs with query strings or fragments are rejected because those components can carry identity; Amazon product URLs are normalized to their ASIN.
+Search and product write monotonic run IDs. `r7.2.5` means item 5 from store 2 in run 7; `r7.2.5.3` means its third variant. Handles expire after seven days. Product detail emits strict, self-contained durable refs such as `{"platform":"shopify","store":"https://example.com","variant_id":"gid://shopify/ProductVariant/123"}`. Product URLs with query strings or fragments are rejected because those components can carry identity; Amazon, Walmart, and Etsy product URLs are normalized to their item ID, so tracking queries on them are dropped.
 
 Store workers run concurrently, up to five at a time. Operations for one store remain sequential in one isolated cookie jar. An unexpected adapter exception becomes an `api_error` for that store without aborting other workers. Exit status is 1 when any entry has `status:api_error`.
 
